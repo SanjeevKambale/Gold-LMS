@@ -1,0 +1,124 @@
+/* Gold Loan Management App - Global Stylesheet */
+
+:root {
+  /* --- Brand Colors --- */
+  --brand-primary: #d4af37; /* Gold */
+  --brand-primary-hover: #b5952f; /* Dark Gold */
+  --brand-secondary: #002147; /* Navy Blue */
+  --brand-secondary-hover: #001228; /* Dark Navy Blue */
+  
+  /* --- Status Colors --- */
+  --status-success: oklch(.723 .219 149.579); /* Green-500 */
+  --status-danger: oklch(.637 .237 25.331); /* Red-500 */
+  --status-warning: oklch(.905 .182 98.111); /* Yellow-300 */
+  
+  /* --- Neutrals --- */
+  --bg-main: oklch(.987 .026 102.212 / 5%); /* Very light yellow tint */
+  --surface-card: #ffffff;
+  --text-main: oklch(.21 .034 264.665); /* Gray-900 */
+  --text-muted: oklch(.551 .027 264.364); /* Gray-500 */
+  --border-light: rgba(0, 0, 0, 0.15); /* Semi-transparent black */
+  
+  /* --- Layout & Spacing --- */
+  --spacing-unit: 0.25rem;
+  --container-max-width: 1280px;
+  --border-radius-lg: 0;
+  --border-radius-xl: 0;
+  
+  /* --- Component Variables --- */
+  --landing-btn-width: 200px;
+  --landing-btn-height: 44px;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+
+/* --- Base Styles --- */
+body {
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- Component Classes --- */
+
+/* Generic Card */
+.app-card {
+  background-color: var(--surface-card);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: var(--border-radius-lg);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.app-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+/* Landing Page Specific Buttons */
+.btn-landing {
+  height: var(--landing-btn-height);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.875rem;
+  border-radius: var(--border-radius-lg);
+  transition: all 0.2s ease-in-out;
+  cursor: pointer;
+}
+
+.btn-landing-signin {
+  background-color: white;
+  color: var(--brand-secondary);
+  border: 2px solid var(--brand-primary);
+}
+
+.btn-landing-signin:hover {
+  background-color: oklch(.985 .002 247.839); /* Gray-50 */
+  border-color: var(--brand-primary-hover);
+  transform: translateY(-4px);
+}
+
+.btn-landing-signup {
+  background-color: var(--brand-primary);
+  color: white;
+  border: none;
+}
+
+.btn-landing-signup:hover {
+  background-color: var(--brand-primary-hover);
+  transform: translateY(-4px);
+}
+
+.btn-landing:active {
+  transform: scale(0.95);
+}
+
+/* --- Layout Utilities --- */
+.app-page-container {
+  max-width: var(--container-max-width);
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.dashboard-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+@media (min-width: 640px) {
+  .dashboard-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .dashboard-stats-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}

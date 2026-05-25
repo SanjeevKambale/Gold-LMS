@@ -1,0 +1,11 @@
+{
+  "css.validate": false,
+  "less.validate": false,
+  "scss.validate": false,
+  "tailwindCSS.includeLanguages": {
+    "css": "CSS"
+  },
+  "files.associations": {
+    "*.css": "tailwindcss"
+  }
+}
