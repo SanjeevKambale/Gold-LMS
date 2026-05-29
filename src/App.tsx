@@ -263,12 +263,13 @@ export default function App() {
             </div>
             
             <div className="flex items-center gap-3">
-              <div className="hidden md:flex items-center gap-3 px-3 py-1.5 bg-gray-50 rounded-none border border-black">
-                <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
-                  <UserIcon className="w-4 h-4 text-yellow-700" />
+              <div className="hidden md:flex items-center gap-2 px-3 h-9 bg-gray-50 rounded-none border border-black">
+                <div className="w-6 h-6 bg-yellow-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <UserIcon className="w-3 h-3 text-yellow-700" />
                 </div>
-                <div className="text-left">
-                  <p className="text-xs font-bold text-gray-900 leading-tight">{currentUser.name}</p>
+                <div className="text-left flex flex-col justify-center">
+                  <p className="text-xs font-bold text-gray-900 leading-none mb-1">{currentUser.name}</p>
+                  <p className="text-[10px] font-semibold text-gray-500 leading-none capitalize">{currentUser.role}</p>
                 </div>
               </div>
 

@@ -71,7 +71,11 @@ export function openLocalFile(filePath: string): void {
     // If it's a data URL or web link
     const win = window.open();
     if (win) {
-      win.document.write(`<iframe src="${filePath}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
+      if (filePath.startsWith('data:image/')) {
+        win.document.write(`<html><body style="margin:0;display:flex;justify-content:center;align-items:center;background:#0e0e0e;"><img src="${filePath}" style="max-width:100%;max-height:100vh;" /></body></html>`);
+      } else {
+        win.document.write(`<iframe src="${filePath}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
+      }
     }
   }
 }
