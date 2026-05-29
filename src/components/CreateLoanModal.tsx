@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
-import { X, Calculator } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { X, Calculator, Camera, Check, Link as LinkIcon, Eye } from 'lucide-react';
 import { Loan, Customer, GoldRate, LoanType, User } from '../types';
 import { getAllCustomers } from '../lib/db/customerService';
 import { getLoanTypes } from '../lib/db/loanService';
 import { getAllGoldRates } from '../lib/db/goldRateService';
+import { saveUploadedFile, openLocalFile } from '../lib/fileService';
 
 interface CreateLoanModalProps {
   onClose: () => void;
@@ -37,7 +38,15 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
   const [loanTypeId, setLoanTypeId] = useState('');
   const [loanAmount, setLoanAmount] = useState('');
   const [tenure, setTenure] = useState('');
+  const [interestRate, setInterestRate] = useState('');
   
+  const [lockerNumber, setLockerNumber] = useState('');
+  const [packetNumber, setPacketNumber] = useState('');
+  const [ornamentPhotoUrl, setOrnamentPhotoUrl] = useState<string | undefined>();
+  const [ornamentFileName, setOrnamentFileName] = useState<string | undefined>();
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const [goldValue, setGoldValue] = useState(0);
   const [maxLoanAmount, setMaxLoanAmount] = useState(0);
   const [emiAmount, setEmiAmount] = useState(0);
@@ -78,11 +87,29 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
     }
   }, [goldWeight, goldRate, selectedLoanType, loanTypes]);
 
+  // File upload handler
+  const handleFileChange = async (file: File | null) => {
+    if (!file) return;
+    
+    setIsUploading(true);
+    try {
+      const customer = verifiedCustomers.find(c => c.id === selectedCustomerId);
+      const name = customer ? customer.name : 'unknown_customer';
+      const filePath = await saveUploadedFile(file, name + '_ornament');
+      setOrnamentPhotoUrl(filePath);
+      setOrnamentFileName(file.name);
+    } catch (err) {
+      console.error('Upload failed:', err);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   // Calculate EMI
   useEffect(() => {
     const principal = parseFloat(loanAmount) || 0;
     const months = parseInt(tenure) || 0;
-    const rate = selectedLoanType?.interestRate || 0;
+    const rate = parseFloat(interestRate) || 0;
 
     if (principal > 0 && months > 0 && rate > 0) {
       const monthlyRate = rate / 12 / 100;
@@ -92,7 +119,7 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
     } else {
       setEmiAmount(0);
     }
-  }, [loanAmount, tenure, selectedLoanType]);
+  }, [loanAmount, tenure, interestRate]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,12 +142,15 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
       loanAmount: parseFloat(loanAmount),
       loanTypeId,
       loanTypeName: selectedLoanType.name,
-      interestRate: selectedLoanType.interestRate,
+      interestRate: parseFloat(interestRate) || selectedLoanType.interestRate,
       tenure: parseInt(tenure),
       startDate: startDate.toISOString().split('T')[0],
       endDate: endDate.toISOString().split('T')[0],
       status: 'active',
       emiAmount,
+      lockerNumber,
+      packetNumber,
+      ornamentPhotoUrl,
     };
 
     onCreate(newLoan);
@@ -261,6 +291,92 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
               )}
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Locker Number</label>
+                <input
+                  type="text"
+                  value={lockerNumber}
+                  onChange={(e) => setLockerNumber(e.target.value)}
+                  className="w-full px-4 py-2 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                  placeholder="e.g., L-101"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Packet Number</label>
+                <input
+                  type="text"
+                  value={packetNumber}
+                  onChange={(e) => setPacketNumber(e.target.value)}
+                  className="w-full px-4 py-2 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                  placeholder="e.g., P-2023"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Ornament Photo</label>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
+                  className="hidden"
+                  accept=".pdf,image/*"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-none border border-black/15 transition-all border-2 border-dashed w-full sm:w-auto justify-center ${
+                    ornamentPhotoUrl 
+                      ? 'border-black/15 bg-green-50 text-green-700' 
+                      : 'border-black/15 bg-white text-gray-500 hover:border-black/15 hover:bg-yellow-50'
+                  }`}
+                >
+                  {ornamentPhotoUrl ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Photo Uploaded
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="w-4 h-4" />
+                      {isUploading ? 'Uploading...' : 'Upload Photo'}
+                    </>
+                  )}
+                </button>
+                {ornamentFileName && (
+                  <div className="flex items-center gap-2 text-xs text-gray-400 bg-white px-3 py-1.5 rounded-none border border-black/15">
+                    <LinkIcon className="w-3 h-3" />
+                    <span className="truncate max-w-[150px] md:max-w-[200px]">{ornamentFileName}</span>
+                    <div className="flex items-center gap-1 ml-1 border-l pl-2 border-black/15">
+                      <button
+                        type="button"
+                        onClick={() => openLocalFile(ornamentPhotoUrl!)}
+                        className="p-1 text-blue-500 hover:bg-blue-50 rounded transition-colors"
+                        title="View Document"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOrnamentPhotoUrl(undefined);
+                          setOrnamentFileName(undefined);
+                          if (fileInputRef.current) fileInputRef.current.value = '';
+                        }}
+                        className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors"
+                        title="Remove File"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="mt-3 p-3 bg-blue-50 border border-black/15 rounded-none border border-black/15">
               <p className="text-sm text-blue-800">
                 <strong>Max Loan Amount (Up to {effectiveLTV}% LTV):</strong> ₹{maxLoanAmount.toLocaleString()}
@@ -275,7 +391,10 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
               {loanTypes.map(loanType => (
                 <div
                   key={loanType.id}
-                  onClick={() => setLoanTypeId(loanType.id)}
+                  onClick={() => {
+                    setLoanTypeId(loanType.id);
+                    setInterestRate(loanType.interestRate.toString());
+                  }}
                   className={`p-4 border-2 rounded-none border border-black/15 cursor-pointer transition-all ${
                     loanTypeId === loanType.id
                       ? 'border-black/15 bg-yellow-50'
@@ -298,6 +417,20 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
             <div>
               <h4 className="text-sm font-medium text-gray-900 mb-4">Loan Details</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Interest Rate (% p.a.) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={interestRate}
+                    onChange={(e) => setInterestRate(e.target.value)}
+                    className="w-full px-4 py-2 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                    placeholder="e.g., 18"
+                  />
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Loan Amount (₹) <span className="text-red-500">*</span>

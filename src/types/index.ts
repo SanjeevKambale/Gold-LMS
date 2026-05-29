@@ -61,6 +61,9 @@ export interface Loan {
   emiAmount: number;
   createdBy?: string;
   branchId?: string;
+  lockerNumber?: string;
+  packetNumber?: string;
+  ornamentPhotoUrl?: string;
 }
 
 export interface LoanTransfer {
