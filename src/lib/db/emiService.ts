@@ -1,31 +1,80 @@
 import { EMI } from '../../types';
 import { getDB, saveDB } from '../database';
+import { getSystemWorkingDate } from '../workingDate';
 
 function rowToEMI(row: any[]): EMI {
+  const emiId = row[0] as string;
+  const loanId = row[1] as string;
+  const customerId = row[2] as string;
+  const customerName = row[3] as string;
+  const emiNumber = row[4] as number;
+  const dueDate = row[5] as string;
+  const amount = row[6] as number;
+  const dbStatus = row[7] as 'pending' | 'paid' | 'overdue';
+  const paidDate = row[8] as string | undefined;
+  const paidAmount = row[9] as number | undefined;
+  const paymentMethod = row[10] as string | undefined;
+  const transactionRef = row[11] as string | undefined;
+  const paymentId = row[12] as string | undefined;
+  const createdBy = row[13] as string | undefined;
+  const penaltyRate = row[14] !== undefined && row[14] !== null ? row[14] as number : 2;
+
+  const today = getSystemWorkingDate();
+
+  // If this EMI was paid in the simulated future, treat it as unpaid/reverted!
+  const isPaidInFuture = dbStatus === 'paid' && paidDate && paidDate > today;
+
+  if (isPaidInFuture) {
+    const isOverdue = dueDate < today;
+    return {
+      id: emiId,
+      loanId,
+      customerId,
+      customerName,
+      emiNumber,
+      dueDate,
+      amount,
+      status: isOverdue ? 'overdue' : 'pending',
+      paidDate: undefined,
+      paidAmount: undefined,
+      paymentMethod: undefined,
+      transactionRef: undefined,
+      paymentId: undefined,
+      createdBy,
+      penaltyRate,
+    };
+  }
+
   return {
-    id: row[0] as string,
-    loanId: row[1] as string,
-    customerId: row[2] as string,
-    customerName: row[3] as string,
-    emiNumber: row[4] as number,
-    dueDate: row[5] as string,
-    amount: row[6] as number,
-    status: row[7] as 'pending' | 'paid' | 'overdue',
-    paidDate: row[8] as string | undefined,
-    paidAmount: row[9] as number | undefined,
-    paymentMethod: row[10] as string | undefined,
-    transactionRef: row[11] as string | undefined,
-    paymentId: row[12] as string | undefined,
-    createdBy: row[13] as string | undefined,
+    id: emiId,
+    loanId,
+    customerId,
+    customerName,
+    emiNumber,
+    dueDate,
+    amount,
+    status: dbStatus,
+    paidDate,
+    paidAmount,
+    paymentMethod,
+    transactionRef,
+    paymentId,
+    createdBy,
+    penaltyRate,
   };
 }
 
 export function getAllEMIs(): EMI[] {
   const db = getDB();
+  const today = getSystemWorkingDate();
   const result = db.exec(
-    `SELECT id, loan_id, customer_id, customer_name, emi_number, due_date,
-            amount, status, paid_date, paid_amount, payment_method, transaction_ref, payment_id, created_by
-     FROM emis ORDER BY due_date ASC`
+    `SELECT e.id, e.loan_id, e.customer_id, e.customer_name, e.emi_number, e.due_date,
+            e.amount, e.status, e.paid_date, e.paid_amount, e.payment_method, e.transaction_ref, e.payment_id, e.created_by, e.penalty_rate
+     FROM emis e
+     INNER JOIN loans l ON e.loan_id = l.id
+     WHERE l.start_date <= ?
+     ORDER BY e.due_date ASC`,
+    [today]
   );
   if (!result.length) return [];
   return result[0].values.map(rowToEMI);
@@ -34,11 +83,15 @@ export function getAllEMIs(): EMI[] {
 /** Returns all EMIs for a specific loan, ordered by emi_number. */
 export function getEMIsByLoan(loanId: string): EMI[] {
   const db = getDB();
+  const today = getSystemWorkingDate();
   const result = db.exec(
-    `SELECT id, loan_id, customer_id, customer_name, emi_number, due_date,
-            amount, status, paid_date, paid_amount, payment_method, transaction_ref, payment_id, created_by
-     FROM emis WHERE loan_id=? ORDER BY emi_number ASC`,
-    [loanId]
+    `SELECT e.id, e.loan_id, e.customer_id, e.customer_name, e.emi_number, e.due_date,
+            e.amount, e.status, e.paid_date, e.paid_amount, e.payment_method, e.transaction_ref, e.payment_id, e.created_by, e.penalty_rate
+     FROM emis e
+     INNER JOIN loans l ON e.loan_id = l.id
+     WHERE e.loan_id=? AND l.start_date <= ?
+     ORDER BY e.emi_number ASC`,
+    [loanId, today]
   );
   if (!result.length) return [];
   return result[0].values.map(rowToEMI);
@@ -55,25 +108,33 @@ export function getEMIsByLoan(loanId: string): EMI[] {
 export function getSmartEMIs(): EMI[] {
   const db = getDB();
 
+  const today = getSystemWorkingDate();
+
   // Get all paid + overdue
   const paidOverdue = db.exec(
-    `SELECT id, loan_id, customer_id, customer_name, emi_number, due_date,
-            amount, status, paid_date, paid_amount, payment_method, transaction_ref, payment_id, created_by
-     FROM emis WHERE status IN ('paid', 'overdue')
-     ORDER BY due_date DESC`
+    `SELECT e.id, e.loan_id, e.customer_id, e.customer_name, e.emi_number, e.due_date,
+            e.amount, e.status, e.paid_date, e.paid_amount, e.payment_method, e.transaction_ref, e.payment_id, e.created_by, e.penalty_rate
+     FROM emis e
+     INNER JOIN loans l ON e.loan_id = l.id
+     WHERE e.status IN ('paid', 'overdue') AND l.start_date <= ?
+     ORDER BY e.due_date DESC`,
+    [today]
   );
 
   // Get only the NEXT pending EMI per loan (min emi_number that is pending)
   const nextPending = db.exec(
     `SELECT e.id, e.loan_id, e.customer_id, e.customer_name, e.emi_number, e.due_date,
-            e.amount, e.status, e.paid_date, e.paid_amount, e.payment_method, e.transaction_ref, e.payment_id, e.created_by
+            e.amount, e.status, e.paid_date, e.paid_amount, e.payment_method, e.transaction_ref, e.payment_id, e.created_by, e.penalty_rate
      FROM emis e
+     INNER JOIN loans l ON e.loan_id = l.id
      INNER JOIN (
        SELECT loan_id, MIN(emi_number) as min_emi
        FROM emis WHERE status = 'pending'
        GROUP BY loan_id
      ) nxt ON e.loan_id = nxt.loan_id AND e.emi_number = nxt.min_emi
-     ORDER BY e.due_date ASC`
+     WHERE l.start_date <= ?
+     ORDER BY e.due_date ASC`,
+    [today]
   );
 
   const result: EMI[] = [];
@@ -96,8 +157,8 @@ export function addEMIs(emis: EMI[]): void {
   const db = getDB();
   for (const emi of emis) {
     db.run(
-      `INSERT INTO emis (id, loan_id, customer_id, customer_name, emi_number, due_date, amount, status, paid_date, paid_amount, payment_method, transaction_ref, payment_id, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO emis (id, loan_id, customer_id, customer_name, emi_number, due_date, amount, status, paid_date, paid_amount, payment_method, transaction_ref, payment_id, created_by, penalty_rate)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         emi.id,
         emi.loanId,
@@ -113,6 +174,7 @@ export function addEMIs(emis: EMI[]): void {
         emi.transactionRef ?? null,
         emi.paymentId ?? null,
         emi.createdBy ?? null,
+        emi.penaltyRate ?? 2,
       ]
     );
   }
@@ -210,11 +272,15 @@ export function payEMI(
 /** Returns all EMIs associated with a specific payment transaction. */
 export function getEMIsByPaymentId(paymentId: string): EMI[] {
   const db = getDB();
+  const today = getSystemWorkingDate();
   const result = db.exec(
-    `SELECT id, loan_id, customer_id, customer_name, emi_number, due_date,
-            amount, status, paid_date, paid_amount, payment_method, transaction_ref, payment_id, created_by
-     FROM emis WHERE payment_id=? ORDER BY emi_number ASC`,
-    [paymentId]
+    `SELECT e.id, e.loan_id, e.customer_id, e.customer_name, e.emi_number, e.due_date,
+            e.amount, e.status, e.paid_date, e.paid_amount, e.payment_method, e.transaction_ref, e.payment_id, e.created_by, e.penalty_rate
+     FROM emis e
+     INNER JOIN loans l ON e.loan_id = l.id
+     WHERE e.payment_id=? AND l.start_date <= ?
+     ORDER BY e.emi_number ASC`,
+    [paymentId, today]
   );
   if (!result.length) return [];
   return result[0].values.map(rowToEMI);
@@ -227,9 +293,13 @@ export function getEMIsByPaymentId(paymentId: string): EMI[] {
  */
 export function updateOverdueEMIs(): void {
   const db = getDB();
-  const today = new Date().toISOString().split('T')[0];
+  const today = getSystemWorkingDate();
   db.run(
     `UPDATE emis SET status='overdue' WHERE status='pending' AND due_date < ?`,
+    [today]
+  );
+  db.run(
+    `UPDATE emis SET status='pending' WHERE status='overdue' AND due_date >= ?`,
     [today]
   );
   saveDB();
@@ -289,12 +359,9 @@ export function getRemainingLoanBalance(loanId: string): number {
   }
 }
 
-/**
- * Calculates the overdue penalty (2% per month or part thereof).
- */
-export function calculateEMIPenalty(emi: { amount: number; dueDate: string; status: string; paidDate?: string }): number {
+export function calculateEMIPenalty(emi: { amount: number; dueDate: string; status: string; paidDate?: string; penaltyRate?: number }): number {
   const dueDate = new Date(emi.dueDate);
-  const targetDate = emi.paidDate ? new Date(emi.paidDate) : new Date();
+  const targetDate = emi.paidDate ? new Date(emi.paidDate) : new Date(getSystemWorkingDate());
   
   // Calculate difference in days
   const diffTime = targetDate.getTime() - dueDate.getTime();
@@ -305,9 +372,13 @@ export function calculateEMIPenalty(emi: { amount: number; dueDate: string; stat
   // If it's already paid but was paid before it became overdue, penalty is 0
   if (emi.status === 'paid' && !emi.paidDate) return 0;
 
-  // 2% for every 30-day period (or part thereof)
+  // Prefilled penalty rate or default to 2%
+  const ratePercentage = emi.penaltyRate !== undefined && emi.penaltyRate !== null ? emi.penaltyRate : 2;
+  const rate = ratePercentage / 100;
+
+  // Rate for every 30-day period (or part thereof)
   const monthsOverdue = Math.ceil(diffDays / 30);
-  return Math.round(emi.amount * 0.02 * monthsOverdue);
+  return Math.round(emi.amount * rate * monthsOverdue);
 }
 
 // ─── Amortisation & Early Closure ────────────────────────────────────────────
@@ -367,10 +438,11 @@ export function earlyCloseLoan(
   tenure: number,
   paymentMethod: string,
   transactionRef: string,
-  paidEMICount: number   // number of EMIs already fully paid
+  paidEMICount: number,   // number of EMIs already fully paid
+  paidDate?: string
 ): { amountCharged: number; interestSaved: number } {
   const db       = getDB();
-  const today    = new Date().toISOString().split('T')[0];
+  const today    = paidDate || getSystemWorkingDate();
   const schedule = computeAmortization(principal, annualRate, tenure);
 
   // Outstanding principal = what's still owed (principal only, no future interest)
@@ -534,5 +606,28 @@ export function rebalanceLoan(
     db.run("UPDATE loans SET emi_amount=? WHERE id=?", [Math.round(newEmi), loanId]);
   }
 
+  saveDB();
+}
+
+/** Permanently deletes a single EMI record from the database. */
+export function deleteEMIRecord(id: string): void {
+  const db = getDB();
+  db.run('DELETE FROM emis WHERE id=?', [id]);
+  saveDB();
+}
+
+/**
+ * Reverts a paid EMI back to 'pending' status by clearing all payment fields.
+ * Use this to undo/delete a payment entry in the Daily Collection report.
+ */
+export function resetEMIPayment(id: string): void {
+  const db = getDB();
+  db.run(
+    `UPDATE emis
+     SET status='pending', paid_date=NULL, paid_amount=NULL,
+         payment_method=NULL, transaction_ref=NULL, payment_id=NULL
+     WHERE id=?`,
+    [id]
+  );
   saveDB();
 }

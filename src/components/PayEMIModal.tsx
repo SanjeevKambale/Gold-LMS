@@ -5,11 +5,12 @@ import { EMI } from '../types';
 import { generateEMIReceipt } from '../lib/pdfReceipt';
 import { getAllSettings } from '../lib/db/settingsService';
 import { getRemainingLoanBalance, calculateEMIPenalty, getEMIsByLoan } from '../lib/db/emiService';
+import { getSystemWorkingDate } from '../lib/workingDate';
 
 interface PayEMIModalProps {
   emi: EMI;
   onClose: () => void;
-  onPay: (emiId: string, paidAmount: number, paymentMethod: string, transactionRef: string, penaltyAmount: number, adjustmentMode?: 'tenure' | 'emi') => void;
+  onPay: (emiId: string, paidAmount: number, paymentMethod: string, transactionRef: string, penaltyAmount: number, paidDate: string, adjustmentMode?: 'tenure' | 'emi') => void;
   customerPhone?: string;
 }
 
@@ -21,8 +22,7 @@ export function PayEMIModal({ emi, onClose, onPay, customerPhone }: PayEMIModalP
   const [finalMethod, setFinalMethod] = useState('');
   const [finalRef, setFinalRef] = useState('');
   const [adjustmentMode, setAdjustmentMode] = useState<'none' | 'tenure' | 'emi'>('none');
-  
-  const paidDate = new Date().toISOString().split('T')[0];
+  const [paidDate, setPaidDate] = useState(() => getSystemWorkingDate());
   const settings = getAllSettings();
   const { shop_name, shop_upi_id } = settings;
   const currentTotalRemaining = getRemainingLoanBalance(emi.loanId);
@@ -41,7 +41,7 @@ export function PayEMIModal({ emi, onClose, onPay, customerPhone }: PayEMIModalP
     setFinalPaidAmount(amount);
     setFinalMethod(paymentMethod);
     setFinalRef(transactionRef);
-    onPay(emi.id, amount, paymentMethod, transactionRef, penaltyAmount, adjustmentMode === 'none' ? undefined : adjustmentMode);
+    onPay(emi.id, amount, paymentMethod, transactionRef, penaltyAmount, paidDate, adjustmentMode === 'none' ? undefined : adjustmentMode);
     setStep('receipt');
   };
 
@@ -78,6 +78,7 @@ export function PayEMIModal({ emi, onClose, onPay, customerPhone }: PayEMIModalP
       remainingBalance: balanceAfter,
       totalEMIs,
       paidEMIsCount,
+      paymentId: currentEmiInDb?.paymentId,
     });
   };
 
@@ -96,6 +97,10 @@ export function PayEMIModal({ emi, onClose, onPay, customerPhone }: PayEMIModalP
     : `https://wa.me/?text=${whatsappMsg}`;
 
   if (step === 'receipt') {
+    const allEmis = getEMIsByLoan(emi.loanId);
+    const currentEmiInDb = allEmis.find(e => e.id === emi.id);
+    const receiptNo = `REC-EMI-${currentEmiInDb?.paymentId ? currentEmiInDb.paymentId.replace('pay_', '').toUpperCase() : `${emi.loanId.slice(-6)}-${emi.emiNumber}`}`;
+
     return (
       <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
         <div className="bg-white rounded-none border border-black/15 max-w-md w-full shadow-2xl overflow-hidden border border-black/15">
@@ -109,9 +114,10 @@ export function PayEMIModal({ emi, onClose, onPay, customerPhone }: PayEMIModalP
           <div className="px-6 py-5 space-y-5">
             <div className="bg-gray-50 rounded-none border border-black/15 p-4 space-y-3">
               {[
+                ['Receipt No.', receiptNo],
                 ['Customer', emi.customerName],
-                ['Loan ID', `#${emi.loanId}`],
-                ['EMI #', `${emi.emiNumber}`],
+                ['Loan ID', emi.loanId],
+                ['EMI', `${emi.emiNumber}`],
                 ['Amount Paid', `₹${finalPaidAmount.toLocaleString('en-IN')}`],
                 ...(finalPaidAmount < emi.amount ? [['Balance Due', `₹${(emi.amount - finalPaidAmount).toLocaleString('en-IN')}`]] : []),
                 ['Method', finalMethod.replace('_', ' ').toUpperCase()],
@@ -177,11 +183,11 @@ export function PayEMIModal({ emi, onClose, onPay, customerPhone }: PayEMIModalP
             <div className="space-y-2 text-sm">
               {[
                 ['Customer', emi.customerName],
-                ['Loan ID', `#${emi.loanId}`],
-                ['EMI Number', `#${emi.emiNumber}`],
+                ['Loan ID', emi.loanId],
+                ['EMI Number', `${emi.emiNumber}`],
                 ['Due Date', new Date(emi.dueDate).toLocaleDateString('en-IN')],
                 ['Contract EMI', `₹${emi.amount.toLocaleString('en-IN')}`],
-                ...(penaltyAmount > 0 ? [['Penalty (2%/mo)', `₹${penaltyAmount.toLocaleString('en-IN')}`]] : []),
+                ...(penaltyAmount > 0 ? [[`Penalty (${emi.penaltyRate ?? 2}%/mo)`, `₹${penaltyAmount.toLocaleString('en-IN')}`]] : []),
                 ...(advanceCredit > 0 ? [['Advance Credit', `−₹${advanceCredit.toLocaleString('en-IN')}`]] : []),
                 ['Amount Due Now', `₹${(remainingDue + penaltyAmount).toLocaleString('en-IN')}`],
                 ['Total Loan Balance', `₹${currentTotalRemaining.toLocaleString('en-IN')}`],
@@ -253,6 +259,20 @@ export function PayEMIModal({ emi, onClose, onPay, customerPhone }: PayEMIModalP
                 required={paymentMethod !== 'cash'}
                 className="w-full px-4 py-2 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
                 placeholder={paymentMethod.startsWith('upi') ? 'UPI Transaction ID' : 'Reference Number'}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Payment Date <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="date"
+                required
+                value={paidDate}
+                onChange={(e) => setPaidDate(e.target.value)}
+                max={getSystemWorkingDate()} // Cannot be in the future
+                className="w-full px-4 py-2 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent font-mono"
               />
             </div>
           </div>

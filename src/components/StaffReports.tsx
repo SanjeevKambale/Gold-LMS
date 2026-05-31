@@ -1,619 +1,1479 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
+import { User, Loan, EMI, Customer, Payment } from '../types';
+import { getAllUsers } from '../lib/db/authService';
+import { getAllLoans, deleteLoan } from '../lib/db/loanService';
+import { getAllEMIs, resetEMIPayment } from '../lib/db/emiService';
+import { getAllCustomers, deleteCustomer } from '../lib/db/customerService';
+import { getAllPayments, deletePayment } from '../lib/db/paymentService';
+import { openLocalFile } from '../lib/fileService';
+import { getSystemWorkingDate } from '../lib/workingDate';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import ExcelJS from 'exceljs';
+import { getAllSettings } from '../lib/db/settingsService';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from './ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from './ui/table';
-import { Badge } from './ui/badge';
-import {
-  FileText,
-  Download,
-  Filter,
-  Search,
   Calendar,
   Activity,
-  LogIn,
-  LogOut,
-  UserPlus,
   CheckCircle,
-  XCircle,
-  TrendingUp,
-  Clock,
+  AlertTriangle,
+  Users,
+  Wallet,
+  Box,
+  Camera,
+  Phone,
+  ArrowUpRight,
+  ArrowDownLeft,
+  Search,
   Trash2,
-  CreditCard,
+  Printer,
+  Download,
+  FileText,
 } from 'lucide-react';
-import { BrandLogo } from './BrandLogo';
-import { getActivityLogs, getMonthlyReport, clearActivityLogs } from '../lib/activityLogger';
-import { ActivityLog, ActivityType, User } from '../types';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { ConfirmationModal } from './ConfirmationModal';
-import { AdminTransferDashboard } from './AdminTransferDashboard';
-import { Send } from 'lucide-react';
-import { generateExcelXML } from '../lib/reportUtils';
 
 interface StaffReportsProps {
   currentUser: User;
 }
 
-export function StaffReports({ currentUser }: StaffReportsProps) {
-  const [selectedUser, setSelectedUser] = useState<string>('all');
-  const [selectedType, setSelectedType] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
+type ReportType =
+  | 'daily_collection'
+  | 'active_loans'
+  | 'closed_loans'
+  | 'overdue_loans'
+  | 'customer_statements'
+  | 'cashbook'
+  | 'gold_inventory'
+  | null;
 
-  const refreshLogs = () => {
-    setActivityLogs(getActivityLogs());
-  };
+async function exportReportExcel(
+  filename: string,
+  title: string,
+  subtitle: string,
+  headers: string[],
+  rows: (string | number)[][]
+) {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Report');
 
-  const handleClearLogs = () => {
-    setShowClearConfirm(true);
-  };
+  const shop = getAllSettings();
+  const shopName = shop.shop_name || 'Gold Loan Manager';
+  const shopAddress = shop.shop_address || '';
+  const shopPhone = shop.shop_phone || '';
 
-  const confirmClearLogs = () => {
-    clearActivityLogs();
-    refreshLogs();
-    setShowClearConfirm(false);
-  };
+  // Ensure grid lines are visible
+  worksheet.views = [{ showGridLines: true }];
 
-  useEffect(() => {
-    refreshLogs();
-  }, []);
+  // 1. Shop Info Header
+  worksheet.mergeCells('A1:F1');
+  const shopCell = worksheet.getCell('A1');
+  shopCell.value = shopName.toUpperCase();
+  shopCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FFA76A02' } }; // Gold color
+  shopCell.alignment = { vertical: 'middle', horizontal: 'left' };
+  worksheet.getRow(1).height = 28;
 
-  // Get unique users from activity logs
-  const uniqueUsers = useMemo(() => {
-    const users = new Map();
-    activityLogs.forEach(log => {
-      // Exclude Admin users from the report lists (requested)
-      if (log.userRole !== 'admin' && !users.has(log.userId)) {
-        users.set(log.userId, { id: log.userId, name: log.userName, role: log.userRole });
+  worksheet.mergeCells('A2:F2');
+  const shopInfoCell = worksheet.getCell('A2');
+  shopInfoCell.value = `${shopAddress} ${shopPhone ? ' | ' + shopPhone : ''}`;
+  shopInfoCell.font = { name: 'Arial', size: 9, color: { argb: 'FF666666' } };
+  shopInfoCell.alignment = { vertical: 'middle', horizontal: 'left' };
+  worksheet.getRow(2).height = 18;
+
+  // Space row 3
+  worksheet.getRow(3).height = 10;
+
+  // 2. Report Details
+  worksheet.mergeCells('A4:F4');
+  const titleCell = worksheet.getCell('A4');
+  titleCell.value = title.toUpperCase();
+  titleCell.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FF000000' } };
+  titleCell.alignment = { vertical: 'middle', horizontal: 'left' };
+  worksheet.getRow(4).height = 22;
+
+  worksheet.mergeCells('A5:F5');
+  const subtitleCell = worksheet.getCell('A5');
+  subtitleCell.value = subtitle;
+  subtitleCell.font = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF888888' } };
+  subtitleCell.alignment = { vertical: 'middle', horizontal: 'left' };
+  worksheet.getRow(5).height = 18;
+
+  // Space row 6
+  worksheet.getRow(6).height = 15;
+
+  // Identify column roles
+  const idColIndices = headers
+    .map((h, i) => {
+      const lower = h.toLowerCase();
+      if (
+        lower.includes('id') ||
+        lower.includes('contact') ||
+        lower.includes('phone') ||
+        lower.includes('packet') ||
+        lower.includes('locker')
+      ) {
+        return i;
+      }
+      return -1;
+    })
+    .filter(idx => idx !== -1);
+
+  // 3. Add Headers (Row 7)
+  const headerRowNumber = 7;
+  const headerRow = worksheet.getRow(headerRowNumber);
+  headerRow.height = 26;
+
+  headers.forEach((headerText, colIndex) => {
+    const cell = headerRow.getCell(colIndex + 1);
+    cell.value = headerText.toUpperCase();
+    cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFCA8A04' } // Yellow-600 gold color
+    };
+    cell.alignment = { vertical: 'middle', horizontal: 'left' };
+    cell.border = {
+      bottom: { style: 'medium', color: { argb: 'FFA76A02' } }
+    };
+  });
+
+  // 4. Add Data Rows
+  rows.forEach((row, rowIndex) => {
+    const rowNumber = headerRowNumber + 1 + rowIndex;
+    const excelRow = worksheet.getRow(rowNumber);
+    excelRow.height = 20;
+
+    const isTotalRow = String(row[0]).toUpperCase().includes('TOTAL') || String(row[0]).toUpperCase().includes('NET');
+
+    row.forEach((cellValue, colIndex) => {
+      const cell = excelRow.getCell(colIndex + 1);
+
+      // Styles
+      const isAltRow = rowIndex % 2 === 1;
+      const cellFillColor = isTotalRow
+        ? 'FFFDF4E3' // Gold light highlight for totals row
+        : isAltRow
+        ? 'FEFCF0' // Very light gold/yellow alternate row
+        : 'FFFFFFFF'; // White
+
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: cellFillColor }
+      };
+
+      // Border styling
+      if (isTotalRow) {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFCA8A04' } },
+          bottom: { style: 'double', color: { argb: 'FFCA8A04' } }
+        };
+      } else {
+        cell.border = {
+          bottom: { style: 'thin', color: { argb: 'FFEAEAEA' } }
+        };
+      }
+
+      // Check if it's an ID or contact column
+      const isIdCol = idColIndices.includes(colIndex);
+
+      if (isIdCol && cellValue !== null && cellValue !== undefined && !isTotalRow) {
+        // Keep strictly as text to prevent scientific notation & leading zero loss
+        cell.value = String(cellValue);
+        cell.numFmt = '@'; // Text format
+        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+        cell.font = { name: 'Arial', size: 9, bold: isTotalRow };
+      } else {
+        // Parse currency strings into actual numbers for professional calculations!
+        const parsed = typeof cellValue === 'string' ? cellValue.trim() : '';
+        const isNegative = parsed.startsWith('-') || parsed.includes('- ₹');
+        const hasCurrency = parsed.includes('₹') || parsed.includes('Rs.');
+        
+        // Extract digits and decimal point
+        const digits = parsed.replace(/[^\d.-]/g, '');
+
+        if (hasCurrency && digits !== '' && !isNaN(Number(digits))) {
+          const num = Number(digits);
+          cell.value = isNegative ? -Math.abs(num) : num;
+          cell.numFmt = '₹#,##0';
+          cell.alignment = { vertical: 'middle', horizontal: 'right' };
+          cell.font = { name: 'Arial', size: 9, bold: isTotalRow };
+        } else if (typeof cellValue === 'number') {
+          cell.value = cellValue;
+          cell.alignment = { vertical: 'middle', horizontal: 'right' };
+          cell.font = { name: 'Arial', size: 9, bold: isTotalRow };
+        } else {
+          // Standard text
+          cell.value = cellValue;
+          cell.alignment = { vertical: 'middle', horizontal: 'left' };
+          cell.font = { name: 'Arial', size: 9, bold: isTotalRow };
+        }
       }
     });
-    return Array.from(users.values());
-  }, [activityLogs]);
+  });
 
-  // Filter activities
-  const filteredActivities = useMemo(() => {
-    // Force staff-only logs by filtering out admin entries
-    let filtered = activityLogs.filter(log => log.userRole !== 'admin');
+  // 5. Auto-fit column widths
+  headers.forEach((_, colIndex) => {
+    const column = worksheet.getColumn(colIndex + 1);
+    let maxLength = 0;
+    column.eachCell({ includeEmpty: true }, (cell) => {
+      let cellLength = 0;
+      if (cell.value !== null && cell.value !== undefined) {
+        if (cell.numFmt === '₹#,##0' && typeof cell.value === 'number') {
+          cellLength = cell.value.toLocaleString().length + 2; // account for Rupee sign
+        } else {
+          cellLength = String(cell.value).length;
+        }
+      }
+      if (cellLength > maxLength) {
+        maxLength = cellLength;
+      }
+    });
+    // Set column width with safety padding
+    column.width = Math.max(maxLength + 4, 12);
+  });
 
-    // Filter by user
-    if (selectedUser !== 'all') {
-      filtered = filtered.filter(log => log.userId === selectedUser);
+  // 6. Save Workbook
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename.endsWith('.xlsx') ? filename : `${filename.split('.')[0]}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function printTable(title: string, subtitle: string, headers: string[], rows: (string | number)[][]) {
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) return;
+
+  const shop = getAllSettings();
+  const shopName = shop.shop_name || 'Gold Loan Manager';
+  const shopAddress = shop.shop_address || '';
+  const shopPhone = shop.shop_phone || '';
+
+  const html = `
+    <html>
+      <head>
+        <title>${title}</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 30px; color: #333; }
+          .header { text-align: center; border-bottom: 2px solid #ca8a04; padding-bottom: 15px; margin-bottom: 20px; }
+          .shop-name { font-size: 24px; font-weight: bold; color: #ca8a04; margin-bottom: 5px; text-transform: uppercase; }
+          .shop-info { font-size: 12px; color: #666; }
+          .report-title { font-size: 18px; font-weight: bold; margin-top: 15px; text-transform: uppercase; }
+          .report-subtitle { font-size: 12px; color: #666; margin-bottom: 20px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+          th { background-color: #f8f9fa; border-bottom: 2px solid #dee2e6; color: #495057; font-weight: bold; padding: 10px; text-align: left; font-size: 12px; text-transform: uppercase; }
+          td { border-bottom: 1px solid #dee2e6; padding: 10px; font-size: 12px; color: #212529; }
+          tr:nth-child(even) { background-color: #fdfdfd; }
+          .footer { margin-top: 40px; text-align: center; font-size: 10px; color: #888; border-top: 1px solid #dee2e6; padding-top: 15px; }
+          @media print {
+            body { padding: 0; }
+            .no-print { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="shop-name">${shopName}</div>
+          <div class="shop-info">${shopAddress} ${shopPhone ? ' | ' + shopPhone : ''}</div>
+          <div class="report-title">${title}</div>
+          <div class="report-subtitle">${subtitle}</div>
+        </div>
+        <table>
+          <thead>
+            <tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `<tr>${r.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('')}
+          </tbody>
+        </table>
+        <div class="footer">
+          This is a system-generated report. Printed on ${new Date().toLocaleDateString('en-IN')}.
+        </div>
+        <script>
+          window.onload = function() {
+            window.print();
+            setTimeout(function() { window.close(); }, 500);
+          };
+        </script>
+      </body>
+    </html>
+  `;
+
+  printWindow.document.write(html);
+  printWindow.document.close();
+}
+
+function parseOrnamentPhotos(photoUrlStr?: string): { url: string; name: string }[] {
+  if (!photoUrlStr) return [];
+  if (photoUrlStr.startsWith('[') && photoUrlStr.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(photoUrlStr);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item: any) => {
+          if (typeof item === 'string') {
+            return { url: item, name: item.split(/[/\\]/).pop() || 'Ornament Photo' };
+          }
+          return { url: item.url || '', name: item.name || 'Ornament Photo' };
+        });
+      }
+    } catch (e) {}
+  }
+  return [{ url: photoUrlStr, name: photoUrlStr.split(/[/\\]/).pop() || 'Ornament Photo' }];
+}
+
+function exportReportPDF(title: string, subtitle: string, headers: string[], rows: (string | number)[][]) {
+  const doc = new jsPDF();
+  const shop = getAllSettings();
+  const shopName = shop.shop_name || 'Gold Loan Manager';
+  const shopAddress = shop.shop_address || '';
+  const shopPhone = shop.shop_phone || '';
+
+  const cleanString = (val: string | number) => {
+    if (typeof val === 'string') {
+      return val.replace(/₹/g, 'Rs. ');
     }
+    return val;
+  };
 
-    // Filter by activity type
-    if (selectedType !== 'all') {
-      filtered = filtered.filter(log => log.activityType === selectedType);
-    }
+  const cleanedTitle = cleanString(title) as string;
+  const cleanedSubtitle = cleanString(subtitle) as string;
+  const cleanedHeaders = headers.map(cleanString) as string[];
+  const cleanedRows = rows.map(r => r.map(cleanString));
 
-    // Filter by search query
-    if (searchQuery) {
-      filtered = filtered.filter(log =>
-        log.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        log.userName.toLowerCase().includes(searchQuery.toLowerCase())
+  // Header banner
+  doc.setFillColor(202, 138, 4); // gold color
+  doc.rect(0, 0, 210, 25, 'F');
+  
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.text(shopName, 14, 11);
+  
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`${shopAddress} ${shopPhone ? ' | ' + shopPhone : ''}`, 14, 18);
+
+  // Title
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text(cleanedTitle, 14, 37);
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 100, 100);
+  doc.text(cleanedSubtitle, 14, 43);
+
+  doc.setDrawColor(202, 138, 4);
+  doc.setLineWidth(0.5);
+  doc.line(14, 46, 196, 46);
+
+  autoTable(doc, {
+    startY: 50,
+    head: [cleanedHeaders],
+    body: cleanedRows as any,
+    headStyles: { fillColor: [202, 138, 4], textColor: [255, 255, 255], fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [254, 252, 232] },
+    styles: { fontSize: 9 },
+  });
+
+  doc.save(`${cleanedTitle.toLowerCase().replace(/\s+/g, '-')}.pdf`);
+}
+
+interface ConfirmState {
+  show: boolean;
+  title: string;
+  message: string;
+  onConfirm: () => void;
+}
+
+export function StaffReports({ currentUser }: StaffReportsProps) {
+  const [selectedReport, setSelectedReport] = useState<ReportType>('daily_collection');
+  const [loans, setLoans]         = useState<Loan[]>([]);
+  const [allLoans, setAllLoans]   = useState<Loan[]>([]);
+  const [emis, setEmis]           = useState<EMI[]>([]);
+  const [payments, setPayments]   = useState<Payment[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [users, setUsers]         = useState<User[]>([]);
+  const [selectedStaffId, setSelectedStaffId] = useState<string>('');
+
+  const [confirm, setConfirm] = useState<ConfirmState>({
+    show: false, title: '', message: '', onConfirm: () => {},
+  });
+
+  // ── Filter states ─────────────────────────────────────────────────────────
+  const today = getSystemWorkingDate();
+  const [dcDate, setDcDate]         = useState(today);
+  const [dcSearch, setDcSearch]     = useState('');
+  const [alSearch, setAlSearch]     = useState('');
+  const [alDateFrom, setAlDateFrom] = useState('');
+  const [alDateTo, setAlDateTo]     = useState('');
+  const [clSearch, setClSearch]     = useState('');
+  const [clStatus, setClStatus]     = useState('');
+  const [olSearch, setOlSearch]     = useState('');
+  const [csSearch, setCsSearch]     = useState('');
+  const [cbDate, setCbDate]         = useState(today);
+  const [giSearch, setGiSearch]     = useState('');
+  const [giGoldType, setGiGoldType] = useState('');
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const loadData = () => {
+    try {
+      const fetched = getAllLoans();
+      setAllLoans(fetched);
+      setLoans(currentUser.role === 'staff'
+        ? fetched.filter(l => l.createdBy === currentUser.id)
+        : fetched);
+      setEmis(getAllEMIs());
+      setPayments(getAllPayments());
+      setCustomers(getAllCustomers());
+      setUsers(getAllUsers());
+    } catch {}
+  };
+
+  useEffect(() => { loadData(); }, [currentUser]);
+
+  const activeLoans  = useMemo(() => loans.filter(l => l.status === 'active'), [loans]);
+  const closedLoans  = useMemo(() => loans.filter(l => l.status === 'closed' || l.status === 'completed'), [loans]);
+  const overdueLoans = useMemo(() => loans.filter(l => l.status === 'defaulted'), [loans]);
+
+  const reportsList = [
+    { id: 'daily_collection',    label: 'Daily Collection',    icon: Calendar },
+    { id: 'active_loans',        label: 'Active Loans',        icon: Activity },
+    { id: 'closed_loans',        label: 'Closed Loans',        icon: CheckCircle },
+    { id: 'overdue_loans',       label: 'Overdue Loans',       icon: AlertTriangle },
+    { id: 'customer_statements', label: 'Customer Statements', icon: Users },
+    { id: 'cashbook',            label: 'Cashbook',            icon: Wallet },
+    { id: 'gold_inventory',      label: 'Gold Inventory',      icon: Box },
+  ] as const;
+
+  const staffUsers = useMemo(
+    () => users.filter(user => user.role === 'staff'),
+    [users]
+  );
+
+  const matchesStaff = (createdBy?: string) =>
+    !selectedStaffId || (createdBy === selectedStaffId);
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const askConfirm = (title: string, message: string, onConfirm: () => void) =>
+    setConfirm({ show: true, title, message, onConfirm });
+
+  const SearchInput = ({
+    value, onChange, placeholder = 'Search…',
+  }: { value: string; onChange: (v: string) => void; placeholder?: string }) => (
+    <div className="relative flex-1 min-w-[180px]">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+      <input
+        type="text"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full pl-9 pr-3 py-2 text-sm border border-black/15 bg-white focus:outline-none focus:ring-1 focus:ring-yellow-400 focus:border-yellow-400 rounded-sm"
+      />
+    </div>
+  );
+
+  const DateInput = ({
+    label, value, onChange,
+  }: { label: string; value: string; onChange: (v: string) => void }) => (
+    <div className="flex flex-col gap-1 min-w-[140px]">
+      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{label}</label>
+      <input
+        type="date"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="px-3 py-2 text-sm border border-black/15 bg-white focus:outline-none focus:ring-1 focus:ring-yellow-400 focus:border-yellow-400 rounded-sm"
+      />
+    </div>
+  );
+
+  const SelectInput = ({
+    label, value, onChange, options,
+  }: { label: string; value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) => (
+    <div className="flex flex-col gap-1 min-w-[140px]">
+      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{label}</label>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="px-3 py-2 text-sm border border-black/15 bg-white focus:outline-none focus:ring-1 focus:ring-yellow-400 focus:border-yellow-400 rounded-sm"
+      >
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </div>
+  );
+
+  /** Top bar: filters on the left, single Delete All button on the right */
+  const ReportHeader = ({
+    title,
+    count,
+    onDeleteAll,
+    deleteLabel,
+    badge,
+    onExportPDF,
+    onExportExcel,
+    onPrint,
+    children,
+  }: {
+    title: string;
+    count: number;
+    onDeleteAll: () => void;
+    deleteLabel?: string;
+    badge?: React.ReactNode;
+    onExportPDF?: () => void;
+    onExportExcel?: () => void;
+    onPrint?: () => void;
+    children?: React.ReactNode;
+  }) => (
+    <div className="mb-5">
+      {/* Title row */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <h3 className="text-xl font-bold">{title}</h3>
+        <div className="flex items-center gap-3 flex-wrap">
+          {badge}
+          {count > 0 && onExportPDF && (
+            <button
+              onClick={onExportPDF}
+              className="flex items-center gap-2 px-3 py-2 text-xs font-bold bg-white text-gray-700 border border-black/15 hover:bg-gray-50 transition-all rounded-sm shadow-sm"
+              title="Export to PDF"
+            >
+              <FileText className="w-4 h-4 text-red-600" />
+              <span>PDF</span>
+            </button>
+          )}
+          {count > 0 && onExportExcel && (
+            <button
+              onClick={onExportExcel}
+              className="flex items-center gap-2 px-3 py-2 text-xs font-bold bg-white text-gray-700 border border-black/15 hover:bg-gray-50 transition-all rounded-sm shadow-sm"
+              title="Export to Excel"
+            >
+              <Download className="w-4 h-4 text-green-600" />
+              <span>Excel</span>
+            </button>
+          )}
+          {count > 0 && onPrint && (
+            <button
+              onClick={onPrint}
+              className="flex items-center gap-2 px-3 py-2 text-xs font-bold bg-white text-gray-700 border border-black/15 hover:bg-gray-50 transition-all rounded-sm shadow-sm"
+              title="Print Report"
+            >
+              <Printer className="w-4 h-4 text-blue-500" />
+              <span>Print</span>
+            </button>
+          )}
+          <button
+            onClick={onDeleteAll}
+            disabled={count === 0}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-bold bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors rounded-sm"
+          >
+            <Trash2 className="w-4 h-4" />
+            {deleteLabel ?? `Delete All (${count})`}
+          </button>
+        </div>
+      </div>
+      {/* Filter bar */}
+      {children && (
+        <div className="flex flex-wrap items-end gap-3 p-4 bg-gray-50 border border-black/10 rounded-sm">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // ── Reports ───────────────────────────────────────────────────────────────
+  const renderDailyCollection = () => {
+    const filteredEMIs = emis.filter(e => {
+      if (e.status !== 'paid' || e.paidDate !== dcDate) return false;
+      if (!matchesStaff(e.createdBy)) return false;
+      const q = dcSearch.toLowerCase();
+      if (q && !e.customerName.toLowerCase().includes(q) && !e.loanId.includes(q)) return false;
+      return true;
+    });
+    const filteredPayments = payments.filter(p => {
+      if (p.paymentDate !== dcDate) return false;
+      if (!matchesStaff(p.createdBy)) return false;
+      const name = (p.customerName || allLoans.find(l => l.id === p.loanId)?.customerName || '').toLowerCase();
+      const q = dcSearch.toLowerCase();
+      if (q && !name.includes(q) && !p.loanId.includes(q)) return false;
+      return true;
+    });
+
+    const totalCollected =
+      filteredEMIs.reduce((s, e) => s + (e.paidAmount || 0), 0) +
+      filteredPayments.reduce((s, p) => s + p.amount, 0);
+    const totalCount = filteredEMIs.length + filteredPayments.length;
+
+    const handleDeleteAll = () => askConfirm(
+      'Delete All Collection Entries',
+      `This will revert ${filteredEMIs.length} EMI payment(s) to "Pending" and permanently delete ${filteredPayments.length} bullet payment(s) for ${dcDate}. Continue?`,
+      () => {
+        filteredEMIs.forEach(e => resetEMIPayment(e.id));
+        filteredPayments.forEach(p => deletePayment(p.id));
+        loadData();
+      }
+    );
+
+    const getDailyCollectionData = () => {
+      const headers = ['Customer', 'Loan ID', 'Type', 'Amount Paid', 'Method'];
+      const rows = [
+        ...filteredEMIs.map(e => [e.customerName, e.loanId, `EMI #${e.emiNumber}`, `₹${(e.paidAmount || 0).toLocaleString()}`, e.paymentMethod || 'cash']),
+        ...filteredPayments.map(p => {
+          const name = p.customerName || allLoans.find(l => l.id === p.loanId)?.customerName || 'Unknown';
+          return [name, p.loanId, `Bullet ${p.paymentType.replace('_', ' ')}`, `₹${p.amount.toLocaleString()}`, p.paymentMethod || 'cash'];
+        })
+      ];
+      return { headers, rows };
+    };
+
+    const handleExportPDF = () => {
+      const { headers, rows } = getDailyCollectionData();
+      exportReportPDF('Daily Collection Report', `Date: ${dcDate} | Total Collected: Rs. ${totalCollected.toLocaleString()}`, headers, rows);
+    };
+
+    const handleExportExcel = () => {
+      const { headers, rows } = getDailyCollectionData();
+      rows.push(['TOTAL', '', '', `₹${totalCollected.toLocaleString()}`, '']);
+      exportReportExcel(`daily-collection-${dcDate}.xlsx`, 'Daily Collection Report', `Date: ${dcDate} | Total Collected: Rs. ${totalCollected.toLocaleString()}`, headers, rows);
+    };
+
+    const handlePrint = () => {
+      const { headers, rows } = getDailyCollectionData();
+      rows.push(['TOTAL', '', '', `₹${totalCollected.toLocaleString()}`, '']);
+      printTable('Daily Collection Report', `Date: ${dcDate} | Total Collected: Rs. ${totalCollected.toLocaleString()}`, headers, rows);
+    };
+
+    return (
+      <div className="bg-white p-6 border border-black/15">
+        <ReportHeader
+          title="Daily Collection Report"
+          count={totalCount}
+          onDeleteAll={handleDeleteAll}
+          onExportPDF={handleExportPDF}
+          onExportExcel={handleExportExcel}
+          onPrint={handlePrint}
+          badge={
+            <div className="bg-blue-50 text-blue-700 px-4 py-2 font-bold border border-blue-200 whitespace-nowrap">
+              Total: ₹{totalCollected.toLocaleString()}
+            </div>
+          }
+        >
+          <DateInput label="Date" value={dcDate} onChange={setDcDate} />
+          <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Search</label>
+            <SearchInput value={dcSearch} onChange={setDcSearch} placeholder="Customer or Loan ID…" />
+          </div>
+        </ReportHeader>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-black/15">
+              <tr>
+                <th className="p-3 text-sm font-bold text-gray-600">Customer</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Loan ID</th>
+                <th className="p-3 text-sm font-bold text-gray-600">EMI No.</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Amount Paid</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Method</th>
+              </tr>
+            </thead>
+            <tbody>
+              {totalCount > 0 ? (
+                <>
+                  {filteredEMIs.map(emi => (
+                    <tr key={emi.id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="p-3 text-sm font-semibold">{emi.customerName}</td>
+                      <td className="p-3 text-sm font-mono">{emi.loanId}</td>
+                      <td className="p-3 text-sm text-gray-600">EMI #{emi.emiNumber}</td>
+                      <td className="p-3 text-sm font-bold text-green-600">₹{emi.paidAmount?.toLocaleString()}</td>
+                      <td className="p-3 text-sm capitalize">{emi.paymentMethod}</td>
+                    </tr>
+                  ))}
+                  {filteredPayments.map(payment => {
+                    const name = payment.customerName || allLoans.find(l => l.id === payment.loanId)?.customerName || 'Unknown';
+                    return (
+                      <tr key={payment.id} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="p-3 text-sm font-semibold">{name}</td>
+                        <td className="p-3 text-sm font-mono">{payment.loanId}</td>
+                        <td className="p-3 text-sm text-gray-600">Bullet {payment.paymentType.replace('_', ' ')}</td>
+                        <td className="p-3 text-sm font-bold text-green-600">₹{payment.amount.toLocaleString()}</td>
+                        <td className="p-3 text-sm capitalize">{payment.paymentMethod || 'cash'}</td>
+                      </tr>
+                    );
+                  })}
+                </>
+              ) : (
+                <tr><td colSpan={5} className="text-center text-gray-500 p-6">No collections found.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const renderActiveLoans = () => {
+    const filtered = activeLoans.filter(loan => {
+      if (!matchesStaff(loan.createdBy)) return false;
+      const q = alSearch.toLowerCase();
+      if (q && !loan.customerName.toLowerCase().includes(q) && !loan.id.includes(q)) return false;
+      if (alDateFrom && loan.startDate < alDateFrom) return false;
+      if (alDateTo   && loan.startDate > alDateTo)   return false;
+      return true;
+    });
+
+    const getActiveLoansData = () => {
+      const headers = ['Loan ID', 'Customer', 'Amount', 'Date Issued'];
+      const rows = filtered.map(loan => [loan.id, loan.customerName, `₹${loan.loanAmount.toLocaleString()}`, new Date(loan.startDate).toLocaleDateString()]);
+      return { headers, rows };
+    };
+
+    const handleExportPDF = () => {
+      const { headers, rows } = getActiveLoansData();
+      exportReportPDF('Active Loans Report', `Total Active: ${filtered.length}`, headers, rows);
+    };
+
+    const handleExportExcel = () => {
+      const { headers, rows } = getActiveLoansData();
+      const totalAmount = filtered.reduce((s, l) => s + l.loanAmount, 0);
+      rows.push(['TOTAL', '', `₹${totalAmount.toLocaleString()}`, '']);
+      exportReportExcel('active-loans.xlsx', 'Active Loans Report', `Total Active: ${filtered.length}`, headers, rows);
+    };
+
+    const handlePrint = () => {
+      const { headers, rows } = getActiveLoansData();
+      const totalAmount = filtered.reduce((s, l) => s + l.loanAmount, 0);
+      rows.push(['TOTAL', '', `₹${totalAmount.toLocaleString()}`, '']);
+      printTable('Active Loans Report', `Total Active: ${filtered.length}`, headers, rows);
+    };
+
+    return (
+      <div className="bg-white p-6 border border-black/15">
+        <ReportHeader
+          title="Active Loans"
+          count={filtered.length}
+          onDeleteAll={() => askConfirm(
+            'Delete All Active Loans',
+            `Permanently delete ${filtered.length} active loan(s) and all their EMIs? This cannot be undone.`,
+            () => { filtered.forEach(l => deleteLoan(l.id)); loadData(); }
+          )}
+          onExportPDF={handleExportPDF}
+          onExportExcel={handleExportExcel}
+          onPrint={handlePrint}
+        >
+          <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Search</label>
+            <SearchInput value={alSearch} onChange={setAlSearch} placeholder="Customer or Loan ID…" />
+          </div>
+          <DateInput label="Issued From" value={alDateFrom} onChange={setAlDateFrom} />
+          <DateInput label="Issued To"   value={alDateTo}   onChange={setAlDateTo} />
+        </ReportHeader>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-black/15">
+              <tr>
+                <th className="p-3 text-sm font-bold text-gray-600">Loan ID</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Customer</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Amount</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Date Issued</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length > 0 ? filtered.map(loan => (
+                <tr key={loan.id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="p-3 text-sm font-mono">{loan.id}</td>
+                  <td className="p-3 text-sm font-semibold">{loan.customerName}</td>
+                  <td className="p-3 text-sm font-bold">₹{loan.loanAmount.toLocaleString()}</td>
+                  <td className="p-3 text-sm text-gray-600">{new Date(loan.startDate).toLocaleDateString()}</td>
+                </tr>
+              )) : (
+                <tr><td colSpan={4} className="text-center p-6 text-gray-500">No active loans match the filters.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const renderClosedLoans = () => {
+    const filtered = closedLoans.filter(loan => {
+      if (!matchesStaff(loan.createdBy)) return false;
+      const q = clSearch.toLowerCase();
+      if (q && !loan.customerName.toLowerCase().includes(q) && !loan.id.includes(q)) return false;
+      if (clStatus && loan.status !== clStatus) return false;
+      return true;
+    });
+
+    const getClosedLoansData = () => {
+      const headers = ['Loan ID', 'Customer', 'Amount', 'Status'];
+      const rows = filtered.map(loan => [loan.id, loan.customerName, `₹${loan.loanAmount.toLocaleString()}`, loan.status.toUpperCase()]);
+      return { headers, rows };
+    };
+
+    const handleExportPDF = () => {
+      const { headers, rows } = getClosedLoansData();
+      exportReportPDF('Closed Loans Report', `Total Closed: ${filtered.length}`, headers, rows);
+    };
+
+    const handleExportExcel = () => {
+      const { headers, rows } = getClosedLoansData();
+      const totalAmount = filtered.reduce((s, l) => s + l.loanAmount, 0);
+      rows.push(['TOTAL', '', `₹${totalAmount.toLocaleString()}`, '']);
+      exportReportExcel('closed-loans.xlsx', 'Closed Loans Report', `Total Closed: ${filtered.length}`, headers, rows);
+    };
+
+    const handlePrint = () => {
+      const { headers, rows } = getClosedLoansData();
+      const totalAmount = filtered.reduce((s, l) => s + l.loanAmount, 0);
+      rows.push(['TOTAL', '', `₹${totalAmount.toLocaleString()}`, '']);
+      printTable('Closed Loans Report', `Total Closed: ${filtered.length}`, headers, rows);
+    };
+
+    return (
+      <div className="bg-white p-6 border border-black/15">
+        <ReportHeader
+          title="Closed Loans"
+          count={filtered.length}
+          onDeleteAll={() => askConfirm(
+            'Delete All Closed Loans',
+            `Permanently delete ${filtered.length} closed/completed loan record(s)? This cannot be undone.`,
+            () => { filtered.forEach(l => deleteLoan(l.id)); loadData(); }
+          )}
+          onExportPDF={handleExportPDF}
+          onExportExcel={handleExportExcel}
+          onPrint={handlePrint}
+        >
+          <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Search</label>
+            <SearchInput value={clSearch} onChange={setClSearch} placeholder="Customer or Loan ID…" />
+          </div>
+          <SelectInput
+            label="Status"
+            value={clStatus}
+            onChange={setClStatus}
+            options={[
+              { value: '',          label: 'All Statuses' },
+              { value: 'closed',    label: 'Closed' },
+              { value: 'completed', label: 'Completed' },
+            ]}
+          />
+        </ReportHeader>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-black/15">
+              <tr>
+                <th className="p-3 text-sm font-bold text-gray-600">Loan ID</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Customer</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Amount</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length > 0 ? filtered.map(loan => (
+                <tr key={loan.id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="p-3 text-sm font-mono">{loan.id}</td>
+                  <td className="p-3 text-sm font-semibold">{loan.customerName}</td>
+                  <td className="p-3 text-sm font-bold">₹{loan.loanAmount.toLocaleString()}</td>
+                  <td className="p-3 text-sm">
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-bold border border-current ${loan.status === 'completed' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>
+                      {loan.status}
+                    </span>
+                  </td>
+                </tr>
+              )) : (
+                <tr><td colSpan={4} className="text-center text-gray-500 p-6">No closed loans match the filters.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const renderOverdueLoans = () => {
+    const filtered = overdueLoans.filter(loan => {
+      if (!matchesStaff(loan.createdBy)) return false;
+      const q = olSearch.toLowerCase();
+      if (q && !loan.customerName.toLowerCase().includes(q) && !loan.id.includes(q)) return false;
+      return true;
+    });
+
+    const getOverdueLoansData = () => {
+      const headers = ['Customer', 'Contact', 'Loan ID', 'Loan Amount', 'Since'];
+      const rows = filtered.map(loan => {
+        const customer = customers.find(c => c.id === loan.customerId);
+        return [
+          loan.customerName,
+          customer?.phone || 'N/A',
+          loan.id,
+          `₹${loan.loanAmount.toLocaleString()}`,
+          new Date(loan.startDate).toLocaleDateString('en-IN')
+        ];
+      });
+      return { headers, rows };
+    };
+
+    const handleExportPDF = () => {
+      const { headers, rows } = getOverdueLoansData();
+      exportReportPDF('Overdue Loans Report', `Total Overdue: ${filtered.length}`, headers, rows);
+    };
+
+    const handleExportExcel = () => {
+      const { headers, rows } = getOverdueLoansData();
+      const totalAmount = filtered.reduce((s, l) => s + l.loanAmount, 0);
+      rows.push(['TOTAL', '', '', `₹${totalAmount.toLocaleString()}`, '']);
+      exportReportExcel('overdue-loans.xlsx', 'Overdue Loans Report', `Total Overdue: ${filtered.length}`, headers, rows);
+    };
+
+    const handlePrint = () => {
+      const { headers, rows } = getOverdueLoansData();
+      const totalAmount = filtered.reduce((s, l) => s + l.loanAmount, 0);
+      rows.push(['TOTAL', '', '', `₹${totalAmount.toLocaleString()}`, '']);
+      printTable('Overdue Loans Report', `Total Overdue: ${filtered.length}`, headers, rows);
+    };
+
+    return (
+      <div className="bg-white p-6 border border-black/15">
+        <ReportHeader
+          title="Overdue Loans"
+          count={filtered.length}
+          onDeleteAll={() => askConfirm(
+            'Delete All Overdue Loans',
+            `Permanently delete ${filtered.length} overdue loan(s) and all their EMIs? This cannot be undone.`,
+            () => { filtered.forEach(l => deleteLoan(l.id)); loadData(); }
+          )}
+          onExportPDF={handleExportPDF}
+          onExportExcel={handleExportExcel}
+          onPrint={handlePrint}
+        >
+          <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Search</label>
+            <SearchInput value={olSearch} onChange={setOlSearch} placeholder="Customer or Loan ID…" />
+          </div>
+        </ReportHeader>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-black/15">
+              <tr>
+                <th className="p-3 text-sm font-bold text-gray-600">Customer</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Contact</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Loan ID</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Loan Amount</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Since</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length > 0 ? filtered.map(loan => {
+                const customer = customers.find(c => c.id === loan.customerId);
+                return (
+                  <tr key={loan.id} className="border-b border-gray-100 hover:bg-red-50">
+                    <td className="p-3 text-sm font-semibold">{loan.customerName}</td>
+                    <td className="p-3 text-sm text-gray-600 flex items-center gap-1">
+                      <Phone className="w-3 h-3" /> {customer?.phone || 'N/A'}
+                    </td>
+                    <td className="p-3 text-sm font-mono">{loan.id}</td>
+                    <td className="p-3 text-sm font-bold text-red-600">₹{loan.loanAmount.toLocaleString()}</td>
+                    <td className="p-3 text-sm text-gray-600">{new Date(loan.startDate).toLocaleDateString()}</td>
+                  </tr>
+                );
+              }) : (
+                <tr><td colSpan={5} className="text-center text-gray-500 p-6">No overdue loans match the filters.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const renderCustomerStatements = () => {
+    const statementData = customers.map(c => {
+      const customerLoans = loans.filter(l => l.customerId === c.id);
+      const totalBorrowed = customerLoans.reduce((s, l) => s + l.loanAmount, 0);
+      const customerEMIs  = emis.filter(e => e.customerId === c.id && e.status === 'paid');
+      const totalPaid     = customerEMIs.reduce((s, e) => s + (e.paidAmount || 0), 0);
+      const activeCount   = customerLoans.filter(l => l.status === 'active' || l.status === 'defaulted').length;
+      return { ...c, totalBorrowed, totalPaid, activeCount, loanCount: customerLoans.length };
+    }).filter(c => c.loanCount > 0);
+
+    const filtered = statementData.filter(c => {
+      if (!matchesStaff(c.createdBy)) return false;
+      const q = csSearch.toLowerCase();
+      if (q && !c.name.toLowerCase().includes(q) && !c.phone.includes(q)) return false;
+      return true;
+    });
+
+    const getCustomerStatementsData = () => {
+      const headers = ['Customer', 'Contact', 'Active / Total', 'Total Borrowed', 'Total Paid'];
+      const rows = filtered.map(c => [
+        c.name,
+        c.phone,
+        `${c.activeCount} / ${c.loanCount}`,
+        `₹${c.totalBorrowed.toLocaleString()}`,
+        `₹${c.totalPaid.toLocaleString()}`
+      ]);
+      return { headers, rows };
+    };
+
+    const handleExportPDF = () => {
+      const { headers, rows } = getCustomerStatementsData();
+      exportReportPDF('Customer Statements Report', `Total Customers: ${filtered.length}`, headers, rows);
+    };
+
+    const handleExportExcel = () => {
+      const { headers, rows } = getCustomerStatementsData();
+      const totalBorrowed = filtered.reduce((s, c) => s + c.totalBorrowed, 0);
+      const totalPaid = filtered.reduce((s, c) => s + c.totalPaid, 0);
+      rows.push(['TOTAL', '', '', `₹${totalBorrowed.toLocaleString()}`, `₹${totalPaid.toLocaleString()}`]);
+      exportReportExcel('customer-statements.xlsx', 'Customer Statements Report', `Total Customers: ${filtered.length}`, headers, rows);
+    };
+
+    const handlePrint = () => {
+      const { headers, rows } = getCustomerStatementsData();
+      const totalBorrowed = filtered.reduce((s, c) => s + c.totalBorrowed, 0);
+      const totalPaid = filtered.reduce((s, c) => s + c.totalPaid, 0);
+      rows.push(['TOTAL', '', '', `₹${totalBorrowed.toLocaleString()}`, `₹${totalPaid.toLocaleString()}`]);
+      printTable('Customer Statements Report', `Total Customers: ${filtered.length}`, headers, rows);
+    };
+
+    return (
+      <div className="bg-white p-6 border border-black/15">
+        <ReportHeader
+          title="Customer Statements"
+          count={filtered.length}
+          onDeleteAll={() => askConfirm(
+            'Delete All Customers',
+            `Permanently delete ${filtered.length} customer record(s)? This cannot be undone.`,
+            () => { filtered.forEach(c => deleteCustomer(c.id)); loadData(); }
+          )}
+          onExportPDF={handleExportPDF}
+          onExportExcel={handleExportExcel}
+          onPrint={handlePrint}
+        >
+          <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Search</label>
+            <SearchInput value={csSearch} onChange={setCsSearch} placeholder="Name or phone…" />
+          </div>
+        </ReportHeader>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-black/15">
+              <tr>
+                <th className="p-3 text-sm font-bold text-gray-600">Customer</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Contact</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Active / Total</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Total Borrowed</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Total Paid</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length > 0 ? filtered.map(c => (
+                <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="p-3 text-sm font-semibold">{c.name}</td>
+                  <td className="p-3 text-sm text-gray-600">{c.phone}</td>
+                  <td className="p-3 text-sm">
+                    <span className="font-bold text-yellow-600">{c.activeCount}</span>
+                    <span className="text-gray-400 mx-1">/</span>
+                    <span>{c.loanCount}</span>
+                  </td>
+                  <td className="p-3 text-sm font-bold">₹{c.totalBorrowed.toLocaleString()}</td>
+                  <td className="p-3 text-sm font-bold text-green-600">₹{c.totalPaid.toLocaleString()}</td>
+                </tr>
+              )) : (
+                <tr><td colSpan={5} className="text-center text-gray-500 p-6">No customers match the search.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const renderCashbook = () => {
+    const emiInflows = emis
+      .filter(e => e.status === 'paid' && e.paidDate === cbDate && matchesStaff(e.createdBy))
+      .map(e => ({ id: e.id, kind: 'emi' as const, type: 'inflow', desc: `EMI #${e.emiNumber} Payment`, customerName: e.customerName, amount: e.paidAmount || 0 }));
+
+    const paymentInflows = payments
+      .filter(p => p.paymentDate === cbDate && matchesStaff(p.createdBy))
+      .map(p => {
+        const loan = allLoans.find(l => l.id === p.loanId);
+        return { id: p.id, kind: 'payment' as const, type: 'inflow', desc: `Bullet ${p.paymentType.replace('_', ' ')} Payment`, customerName: p.customerName || loan?.customerName || 'Unknown', amount: p.amount };
+      });
+
+    const outflows = loans
+      .filter(l => l.startDate === cbDate && matchesStaff(l.createdBy))
+      .map(l => ({ id: l.id, kind: 'loan' as const, type: 'outflow', desc: 'Loan Disbursement', customerName: l.customerName, amount: l.loanAmount }));
+
+    const transactions = [...emiInflows, ...paymentInflows, ...outflows];
+    const totalIn  = [...emiInflows, ...paymentInflows].reduce((s, t) => s + t.amount, 0);
+    const totalOut = outflows.reduce((s, t) => s + t.amount, 0);
+    const net      = totalIn - totalOut;
+
+    const handleDeleteAll = () => askConfirm(
+      'Delete All Cashbook Entries',
+      `This will revert ${emiInflows.length} EMI payment(s) to "Pending", delete ${paymentInflows.length} bullet payment(s), and delete ${outflows.length} loan disbursement(s) for ${cbDate}. Continue?`,
+      () => {
+        emiInflows.forEach(t => resetEMIPayment(t.id));
+        paymentInflows.forEach(t => deletePayment(t.id));
+        outflows.forEach(t => deleteLoan(t.id));
+        loadData();
+      }
+    );
+
+    const getCashbookData = () => {
+      const headers = ['Type', 'Description', 'Customer', 'Amount'];
+      const rows = transactions.map(t => [
+        t.type.toUpperCase(),
+        t.desc,
+        t.customerName,
+        `${t.type === 'inflow' ? '+' : '-'} ₹${t.amount.toLocaleString()}`
+      ]);
+      return { headers, rows };
+    };
+
+    const handleExportPDF = () => {
+      const { headers, rows } = getCashbookData();
+      exportReportPDF(
+        'Cashbook Report',
+        `Date: ${cbDate} | Total In: Rs. ${totalIn.toLocaleString()} | Total Out: Rs. ${totalOut.toLocaleString()} | Net: Rs. ${net.toLocaleString()}`,
+        headers,
+        rows
       );
-    }
+    };
 
-    // Filter by date range
-    if (dateFrom) {
-      filtered = filtered.filter(log => new Date(log.timestamp) >= new Date(dateFrom));
-    }
-    if (dateTo) {
-      filtered = filtered.filter(log => new Date(log.timestamp) <= new Date(dateTo + 'T23:59:59'));
-    }
+    const handleExportExcel = () => {
+      const { headers, rows } = getCashbookData();
+      rows.push(['TOTAL INFLOWS', '', '', `₹${totalIn.toLocaleString()}`]);
+      rows.push(['TOTAL OUTFLOWS', '', '', `₹${totalOut.toLocaleString()}`]);
+      rows.push(['NET POSITION', '', '', `₹${net.toLocaleString()}`]);
+      exportReportExcel(`cashbook-${cbDate}.xlsx`, 'Cashbook Report', `Date: ${cbDate} | Total In: Rs. ${totalIn.toLocaleString()} | Total Out: Rs. ${totalOut.toLocaleString()} | Net: Rs. ${net.toLocaleString()}`, headers, rows);
+    };
 
-    return filtered;
-  }, [activityLogs, selectedUser, selectedType, searchQuery, dateFrom, dateTo]);
+    const handlePrint = () => {
+      const { headers, rows } = getCashbookData();
+      rows.push(['TOTAL INFLOWS', '', '', `₹${totalIn.toLocaleString()}`]);
+      rows.push(['TOTAL OUTFLOWS', '', '', `₹${totalOut.toLocaleString()}`]);
+      rows.push(['NET POSITION', '', '', `₹${net.toLocaleString()}`]);
+      printTable(
+        'Cashbook Report',
+        `Date: ${cbDate} | Total In: Rs. ${totalIn.toLocaleString()} | Total Out: Rs. ${totalOut.toLocaleString()} | Net: Rs. ${net.toLocaleString()}`,
+        headers,
+        rows
+      );
+    };
 
-  // Get monthly report data
-  const monthlyReportData = useMemo(() => {
-    if (selectedUser === 'all') return [];
-    return getMonthlyReport(selectedUser, selectedYear, selectedMonth);
-  }, [selectedUser, selectedYear, selectedMonth]);
+    return (
+      <div className="bg-white p-6 border border-black/15">
+        <ReportHeader
+          title="Cashbook"
+          count={transactions.length}
+          onDeleteAll={handleDeleteAll}
+          onExportPDF={handleExportPDF}
+          onExportExcel={handleExportExcel}
+          onPrint={handlePrint}
+          badge={
+            <div className="flex flex-wrap gap-2">
+              <div className="bg-green-50 text-green-700 px-3 py-2 font-bold border border-green-200 text-sm">In: ₹{totalIn.toLocaleString()}</div>
+              <div className="bg-red-50 text-red-700 px-3 py-2 font-bold border border-red-200 text-sm">Out: ₹{totalOut.toLocaleString()}</div>
+              <div className={`px-3 py-2 font-bold border text-sm ${net >= 0 ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
+                Net: ₹{net.toLocaleString()}
+              </div>
+            </div>
+          }
+        >
+          <DateInput label="Date" value={cbDate} onChange={setCbDate} />
+        </ReportHeader>
 
-
-  const getActivityIcon = (type: ActivityType) => {
-    switch (type) {
-      case 'login': return <LogIn className="w-4 h-4" />;
-      case 'logout': return <LogOut className="w-4 h-4" />;
-      case 'customer_added': return <UserPlus className="w-4 h-4" />;
-      case 'loan_created': return <BrandLogo className="w-4 h-4" />;
-      case 'emi_paid': return <CreditCard className="w-4 h-4" />;
-      case 'kyc_verified': return <CheckCircle className="w-4 h-4" />;
-      case 'kyc_rejected': return <XCircle className="w-4 h-4" />;
-      case 'gold_rate_updated': return <TrendingUp className="w-4 h-4" />;
-      default: return <Activity className="w-4 h-4" />;
-    }
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-black/15">
+              <tr>
+                <th className="p-3 text-sm font-bold text-gray-600">Type</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Description</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Customer</th>
+                <th className="p-3 text-sm font-bold text-gray-600 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transactions.length > 0 ? transactions.map(t => (
+                <tr key={t.id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="p-3">
+                    {t.type === 'inflow' ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-bold text-green-700 bg-green-100 px-2 py-1">
+                        <ArrowDownLeft className="w-3 h-3" /> IN
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-xs font-bold text-red-700 bg-red-100 px-2 py-1">
+                        <ArrowUpRight className="w-3 h-3" /> OUT
+                      </span>
+                    )}
+                  </td>
+                  <td className="p-3 text-sm text-gray-700">{t.desc}</td>
+                  <td className="p-3 text-sm font-semibold">{t.customerName}</td>
+                  <td className={`p-3 text-sm font-bold text-right ${t.type === 'inflow' ? 'text-green-600' : 'text-red-600'}`}>
+                    {t.type === 'inflow' ? '+' : '-'} ₹{t.amount.toLocaleString()}
+                  </td>
+                </tr>
+              )) : (
+                <tr><td colSpan={4} className="text-center text-gray-500 p-6">No cashbook entries for the selected date.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
   };
 
-  const getActivityBadgeVariant = (type: ActivityType): "default" | "secondary" | "destructive" | "outline" => {
-    switch (type) {
-      case 'login':
-      case 'customer_added':
-      case 'loan_created':
-      case 'kyc_verified':
-        return 'default';
-      case 'logout':
-        return 'secondary';
-      case 'kyc_rejected':
-      case 'loan_closed':
-        return 'destructive';
-      default:
-        return 'outline';
+  const renderGoldInventory = () => {
+    const inventoryLoans = loans.filter(l => l.status === 'active' || l.status === 'defaulted');
+    const filtered = inventoryLoans.filter(loan => {
+      const q = giSearch.toLowerCase();
+      if (q &&
+        !loan.customerName.toLowerCase().includes(q) &&
+        !(loan.lockerNumber || '').toLowerCase().includes(q) &&
+        !(loan.packetNumber || '').toLowerCase().includes(q) &&
+        !(loan.itemType || '').toLowerCase().includes(q)) return false;
+      if (giGoldType && loan.goldType !== giGoldType) return false;
+      return true;
+    });
+
+    const totalWeight = filtered.reduce((s, l) => s + l.goldWeight, 0);
+    const totalValue  = filtered.reduce((s, l) => s + l.goldValue, 0);
+
+    const getGoldInventoryData = () => {
+      const headers = ['Locker / Packet', 'Customer', 'Item Details', 'Purity', 'Gross Weight', 'Gold Value'];
+      const rows = filtered.map(loan => [
+        `L-${loan.lockerNumber || 'N/A'} / P-${loan.packetNumber || 'N/A'}`,
+        loan.customerName,
+        loan.itemType,
+        loan.goldType,
+        `${loan.goldWeight}g`,
+        `₹${loan.goldValue.toLocaleString()}`
+      ]);
+      return { headers, rows };
+    };
+
+    const handleExportPDF = () => {
+      const { headers, rows } = getGoldInventoryData();
+      exportReportPDF(
+        'Gold Inventory Safe Report',
+        `Items: ${filtered.length} | Total Weight: ${totalWeight.toFixed(2)}g | Total Value: Rs. ${totalValue.toLocaleString()}`,
+        headers,
+        rows
+      );
+    };
+
+    const handleExportExcel = () => {
+      const { headers, rows } = getGoldInventoryData();
+      rows.push(['TOTAL', '', '', '', `${totalWeight.toFixed(2)}g`, `₹${totalValue.toLocaleString()}`]);
+      exportReportExcel('gold-inventory.xlsx', 'Gold Inventory Safe Report', `Items: ${filtered.length} | Total Weight: ${totalWeight.toFixed(2)}g | Total Value: Rs. ${totalValue.toLocaleString()}`, headers, rows);
+    };
+
+    const handlePrint = () => {
+      const { headers, rows } = getGoldInventoryData();
+      rows.push(['TOTAL', '', '', '', `${totalWeight.toFixed(2)}g`, `₹${totalValue.toLocaleString()}`]);
+      printTable(
+        'Gold Inventory Safe Report',
+        `Items: ${filtered.length} | Total Weight: ${totalWeight.toFixed(2)}g | Total Value: Rs. ${totalValue.toLocaleString()}`,
+        headers,
+        rows
+      );
+    };
+
+    return (
+      <div className="bg-white p-6 border border-black/15">
+        <ReportHeader
+          title="Gold Inventory (In Safe)"
+          count={filtered.length}
+          onDeleteAll={() => askConfirm(
+            'Delete All Gold Inventory Entries',
+            `Permanently delete ${filtered.length} inventory record(s) and their associated loans? This cannot be undone.`,
+            () => { filtered.forEach(l => deleteLoan(l.id)); loadData(); }
+          )}
+          onExportPDF={handleExportPDF}
+          onExportExcel={handleExportExcel}
+          onPrint={handlePrint}
+          badge={
+            <div className="flex flex-wrap gap-2">
+              <div className="bg-yellow-50 text-yellow-800 px-3 py-2 text-sm font-bold border border-yellow-200">
+                {filtered.length} Items · {totalWeight.toFixed(2)}g
+              </div>
+              <div className="bg-yellow-50 text-yellow-800 px-3 py-2 text-sm font-bold border border-yellow-200">
+                Value: ₹{totalValue.toLocaleString()}
+              </div>
+            </div>
+          }
+        >
+          <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Search</label>
+            <SearchInput value={giSearch} onChange={setGiSearch} placeholder="Customer, locker, item…" />
+          </div>
+          <SelectInput
+            label="Gold Purity"
+            value={giGoldType}
+            onChange={setGiGoldType}
+            options={[
+              { value: '',    label: 'All Purities' },
+              { value: '24K', label: '24K' },
+              { value: '22K', label: '22K' },
+              { value: '18K', label: '18K' },
+            ]}
+          />
+        </ReportHeader>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-black/15">
+              <tr>
+                <th className="p-3 text-sm font-bold text-gray-600">Locker / Packet</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Customer</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Item Details</th>
+                <th className="p-3 text-sm font-bold text-gray-600">Gold Value</th>
+                <th className="p-3 text-sm font-bold text-gray-600 text-center">Photo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length > 0 ? filtered.map(loan => (
+                <tr key={loan.id} className="border-b border-gray-100 hover:bg-yellow-50">
+                  <td className="p-3 text-sm font-mono font-bold text-yellow-700">
+                    L-{loan.lockerNumber || 'N/A'} / P-{loan.packetNumber || 'N/A'}
+                  </td>
+                  <td className="p-3 text-sm font-semibold">{loan.customerName}</td>
+                  <td className="p-3 text-sm">
+                    <div className="font-semibold text-gray-800">{loan.itemType} ({loan.goldType})</div>
+                    <div className="text-gray-500 text-xs">{loan.goldWeight}g gross weight</div>
+                  </td>
+                  <td className="p-3 text-sm font-bold text-gray-700">₹{loan.goldValue.toLocaleString()}</td>
+                  <td className="p-3 text-center">
+                    {loan.ornamentPhotoUrl ? (
+                      <div className="flex justify-center gap-1.5 flex-wrap">
+                        {parseOrnamentPhotos(loan.ornamentPhotoUrl).map((photo, i) => (
+                          <button
+                            key={i}
+                            onClick={() => openLocalFile(photo.url)}
+                            className="text-yellow-600 hover:text-yellow-750 inline-flex items-center gap-1 text-xs font-bold bg-yellow-50 hover:bg-yellow-100 border border-yellow-200 px-2 py-1 rounded-sm shadow-sm transition-all"
+                            title={photo.name}
+                          >
+                            <Camera className="w-3.5 h-3.5 shrink-0" />
+                            <span>Photo {i + 1}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-gray-400 text-xs">No Photo</span>
+                    )}
+                  </td>
+                </tr>
+              )) : (
+                <tr><td colSpan={5} className="text-center text-gray-500 p-6">No items match the filters.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const renderReportContent = () => {
+    switch (selectedReport) {
+      case 'daily_collection':    return renderDailyCollection();
+      case 'active_loans':        return renderActiveLoans();
+      case 'closed_loans':        return renderClosedLoans();
+      case 'overdue_loans':       return renderOverdueLoans();
+      case 'customer_statements': return renderCustomerStatements();
+      case 'cashbook':            return renderCashbook();
+      case 'gold_inventory':      return renderGoldInventory();
+      default: return null;
     }
   };
-
-  const escapeCSV = (field: string | number | boolean | null | undefined): string => {
-    if (field === null || field === undefined) return '';
-    const str = String(field);
-    if (str.includes(',') || str.includes('\n') || str.includes('"')) {
-      return `"${str.replace(/"/g, '""')}"`;
-    }
-    return str;
-  };
-
-  const exportToCSV = () => {
-    const timestamp = new Date().toISOString().split('T')[0];
-    const headers = ['TIMESTAMP', 'STAFF NAME', 'ACTIVITY TYPE', 'DESCRIPTION', 'DETAILS'];
-    const data = filteredActivities.map(log => [
-      new Date(log.timestamp).toISOString().replace('T', ' ').substring(0, 19),
-      log.userName,
-      log.activityType.toUpperCase().replace(/_/g, ' '),
-      log.description,
-      log.details || '',
-    ]);
-
-    const xmlData = generateExcelXML(headers, data, [140, 120, 120, 250, 300]);
-    const blob = new Blob([xmlData], { type: 'application/vnd.ms-excel' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `GoldLoan_Staff_Report_${timestamp}.xls`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const exportMonthlyReport = () => {
-    if (selectedUser === 'all') return;
-    
-    const headers = ['TIMESTAMP', 'ACTIVITY TYPE', 'DESCRIPTION', 'DETAILS'];
-    const data = monthlyReportData.map(log => [
-      new Date(log.timestamp).toISOString().replace('T', ' ').substring(0, 19),
-      log.activityType.toUpperCase().replace(/_/g, ' '),
-      log.description,
-      log.details || '',
-    ]);
-
-    const userName = uniqueUsers.find(u => u.id === selectedUser)?.name || 'Staff';
-    const monthName = new Date(selectedYear, selectedMonth - 1).toLocaleString('default', { month: 'long' });
-
-    const xmlData = generateExcelXML(headers, data, [140, 120, 250, 300]);
-    const blob = new Blob([xmlData], { type: 'application/vnd.ms-excel' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Monthly_Report_${userName}_${monthName}_${selectedYear}.xls`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleManualRefresh = () => {
-    refreshLogs();
-  };
-
 
   return (
     <div className="space-y-4 md:space-y-6">
-      {/* Header */}
       <div>
-        <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Staff Reports & Activity</h2>
-        <div className="mt-1">
-          <p className="text-sm md:text-base text-gray-600">
-            Monitor staff activities, login history, and generate reports
-          </p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+          <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Reports</h2>
+          {currentUser.role === 'admin' && (
+            <div className="flex items-center gap-2.5">
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-wide">Staff:</span>
+              <select
+                value={selectedStaffId}
+                onChange={e => setSelectedStaffId(e.target.value)}
+                className="px-3 py-1.5 text-sm font-semibold border border-black/15 bg-white rounded-none focus:outline-none focus:ring-1 focus:ring-yellow-400 focus:border-yellow-400 w-48 shadow-sm cursor-pointer text-gray-800"
+              >
+                <option value="">All Staff Members</option>
+                {staffUsers.map(staff => (
+                  <option key={staff.id} value={staff.id}>{staff.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2 border-b border-black/15 pb-4">
+          {reportsList.map(report => {
+            const Icon = report.icon;
+            const isActive = selectedReport === report.id;
+            return (
+              <button
+                key={report.id}
+                onClick={() => setSelectedReport(report.id as ReportType)}
+                className={`flex items-center gap-2 px-4 py-2 font-bold text-sm transition-all border ${
+                  isActive
+                    ? 'bg-yellow-500 text-black border-yellow-600 shadow-sm'
+                    : 'bg-white text-gray-600 border-black/15 hover:bg-gray-50 hover:text-black hover:border-black/30'
+                }`}
+              >
+                <Icon className={`w-4 h-4 ${isActive ? 'text-black' : 'text-gray-500'}`} />
+                {report.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Main Content Tabs */}
-      <Tabs defaultValue="activity" className="space-y-4">
-        <TabsList className="flex flex-row items-center justify-start w-full lg:w-auto bg-gray-100/80 p-1.5 rounded-none border border-black/15 shadow-inner overflow-x-auto scrollbar-hide gap-1.5 mb-6">
-          <TabsTrigger value="activity" className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-none border border-black/15 transition-all whitespace-nowrap flex-1 text-xs md:text-sm font-bold data-[state=active]:bg-white data-[state=active]:text-yellow-600 data-[state=active]:shadow-md data-[state=active]:translate-y-[-1px] text-gray-500 hover:text-gray-700">
-            <Activity className="w-4 h-4" />
-            <span className="min-w-max">Activity Logs</span>
-          </TabsTrigger>
-          <TabsTrigger value="monthly" className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-none border border-black/15 transition-all whitespace-nowrap flex-1 text-xs md:text-sm font-bold data-[state=active]:bg-white data-[state=active]:text-yellow-600 data-[state=active]:shadow-md data-[state=active]:translate-y-[-1px] text-gray-500 hover:text-gray-700">
-            <FileText className="w-4 h-4" />
-            <span className="min-w-max">Monthly Reports</span>
-          </TabsTrigger>
-          <TabsTrigger value="transfers" className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-none border border-black/15 transition-all whitespace-nowrap flex-1 text-xs md:text-sm font-bold data-[state=active]:bg-white data-[state=active]:text-yellow-600 data-[state=active]:shadow-md data-[state=active]:translate-y-[-1px] text-gray-500 hover:text-gray-700">
-            <Send className="w-4 h-4" />
-            <span className="min-w-max">Transfer Requests</span>
-          </TabsTrigger>
-        </TabsList>
+      <div className="mt-4 animate-in fade-in duration-300">
+        {renderReportContent()}
+      </div>
 
-        {/* Activity Logs Tab */}
-        <TabsContent value="activity" className="space-y-4">
-          <div className="bg-white rounded-none border border-black/15 shadow-sm overflow-hidden hover:shadow-md transition-all duration-300">
-            <div className="px-6 py-4 border-b border-black/15 bg-gray-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* ── Confirmation Dialog ── */}
+      {confirm.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white border border-black/15 shadow-xl max-w-md w-full p-6 rounded-sm">
+            <div className="flex items-start gap-3 mb-5">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                <Trash2 className="w-5 h-5 text-red-600" />
+              </div>
               <div>
-                <h3 className="text-lg font-bold text-gray-900">Activity Logs</h3>
-                <p className="text-xs text-gray-500">View and filter all staff activities</p>
-              </div>
-              <div className="flex flex-row flex-wrap items-center justify-end gap-2 w-full sm:w-auto">
-                <Button 
-                  onClick={handleClearLogs} 
-                  variant="outline" 
-                  size="sm"
-                  className="text-red-500 hover:text-red-600 hover:bg-red-50 border-black/15 font-semibold px-3 h-8 text-xs rounded-none border border-black/15 transition-all active:scale-95"
-                >
-                  <Trash2 className="w-3.5 h-3.5 mr-2" />
-                  Clear Logs
-                </Button>
-                <Button 
-                  onClick={exportToCSV} 
-                  size="sm" 
-                  className="px-3 h-8 text-xs font-semibold rounded-none border border-black/15 bg-yellow-500 text-white hover:bg-yellow-600 shadow-sm transition-all active:scale-95"
-                >
-                  <Download className="w-3.5 h-3.5 mr-2" />
-                  Export CSV
-                </Button>
+                <h3 className="text-lg font-bold text-gray-900">{confirm.title}</h3>
+                <p className="text-sm text-gray-600 mt-1 leading-relaxed">{confirm.message}</p>
               </div>
             </div>
-            <div className="p-6 space-y-4">
-              {/* Filters */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-bold text-gray-500 uppercase">Staff Member</Label>
-                  <Select value={selectedUser} onValueChange={setSelectedUser}>
-                    <SelectTrigger className="rounded-none border border-black/15 h-10">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Staff</SelectItem>
-                      {uniqueUsers.map(user => (
-                        <SelectItem key={user.id} value={user.id}>
-                          {user.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-bold text-gray-500 uppercase">Activity Type</Label>
-                  <Select value={selectedType} onValueChange={setSelectedType}>
-                    <SelectTrigger className="rounded-none border border-black/15 h-10">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Types</SelectItem>
-                      <SelectItem value="login">Login</SelectItem>
-                      <SelectItem value="logout">Logout</SelectItem>
-                      <SelectItem value="customer_added">Customer Added</SelectItem>
-                      <SelectItem value="loan_created">Loan Created</SelectItem>
-                      <SelectItem value="emi_paid">EMI Paid</SelectItem>
-                      <SelectItem value="kyc_verified">KYC Verified</SelectItem>
-                      <SelectItem value="kyc_rejected">KYC Rejected</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-bold text-gray-500 uppercase">From Date</Label>
-                  <Input
-                    type="date"
-                    value={dateFrom}
-                    onChange={(e) => setDateFrom(e.target.value)}
-                    className="rounded-none border border-black/15 h-10"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-bold text-gray-500 uppercase">To Date</Label>
-                  <Input
-                    type="date"
-                    value={dateTo}
-                    onChange={(e) => setDateTo(e.target.value)}
-                    className="rounded-none border border-black/15 h-10"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-bold text-gray-500 uppercase">Search Details</Label>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <Input
-                      placeholder="Keywords..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9 rounded-none border border-black/15 h-10"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Activity Table - Desktop */}
-              <div className="hidden md:block rounded-none border border-black/15 overflow-hidden">
-                <Table>
-                  <TableHeader className="bg-gray-50/50">
-                    <TableRow>
-                      <TableHead className="w-[180px] font-bold text-gray-600">Timestamp</TableHead>
-                      <TableHead className="font-bold text-gray-600">Staff</TableHead>
-                      <TableHead className="font-bold text-gray-600">Activity</TableHead>
-                      <TableHead className="font-bold text-gray-600">Description</TableHead>
-                      <TableHead className="hidden lg:table-cell font-bold text-gray-600">Details</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredActivities.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center py-12 text-gray-500">
-                          <Clock className="w-12 h-12 mx-auto mb-3 text-gray-200" />
-                          <p className="font-medium">No activity records match your filters.</p>
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredActivities.map((log) => (
-                        <TableRow key={log.id} className="hover:bg-gray-50/50 transition-colors">
-                          <TableCell className="font-mono text-xs text-gray-500">
-                            {new Date(log.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
-                          </TableCell>
-                          <TableCell>
-                            <div className="font-bold text-gray-900">{log.userName}</div>
-                            <div className="text-[10px] text-gray-400 uppercase font-medium">{log.userRole}</div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={getActivityBadgeVariant(log.activityType)} className="gap-1.5 font-bold uppercase tracking-wider text-[10px] py-1">
-                              {getActivityIcon(log.activityType)}
-                              {log.activityType.replace(/_/g, ' ')}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="max-w-xs truncate text-sm text-gray-700">{log.description}</TableCell>
-                          <TableCell className="hidden lg:table-cell max-w-sm truncate text-gray-400 text-xs italic">
-                            {log.details || '-'}
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* Activity Logs - Mobile List (Simplified) */}
-              <div className="md:hidden">
-                {filteredActivities.length === 0 ? (
-                  <div className="bg-gray-50 rounded-none border border-black/15 p-12 text-center border-2 border-dashed border-black/15">
-                    <Activity className="w-10 h-10 text-gray-200 mx-auto mb-3" />
-                    <p className="text-gray-500 font-medium">No activity found.</p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-gray-100">
-                    {filteredActivities.slice(0, 50).map((log) => (
-                      <div key={log.id} className="py-4 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="text-gray-400">
-                              {getActivityIcon(log.activityType)}
-                            </span>
-                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                              {log.activityType.replace(/_/g, ' ')}
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-gray-400 font-mono">
-                            {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {new Date(log.timestamp).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-sm font-bold text-gray-900 leading-tight">{log.description}</p>
-                          <p className="text-xs text-gray-500 mt-1">By <span className="font-semibold text-gray-700">{log.userName}</span></p>
-                        </div>
-                        {log.details && (
-                          <p className="text-[10px] text-gray-400 italic bg-gray-50 p-2 rounded-none border border-black/15">
-                            {log.details}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {filteredActivities.length > 0 && (
-                <p className="text-sm text-gray-500 text-center">
-                  Showing {filteredActivities.length} {filteredActivities.length === 1 ? 'activity' : 'activities'}
-                </p>
-              )}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setConfirm(s => ({ ...s, show: false }))}
+                className="px-4 py-2 text-sm font-bold bg-white border border-black/20 text-gray-700 hover:bg-gray-50 rounded-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { confirm.onConfirm(); setConfirm(s => ({ ...s, show: false })); }}
+                className="px-4 py-2 text-sm font-bold bg-red-600 text-white hover:bg-red-700 rounded-sm"
+              >
+                Yes, Delete
+              </button>
             </div>
           </div>
-        </TabsContent>
-
-        {/* Monthly Reports Tab */}
-        <TabsContent value="monthly" className="space-y-4">
-          <div className="bg-white rounded-none border border-black/15 shadow-sm overflow-hidden hover:shadow-md transition-all duration-300">
-            <div className="px-6 py-4 border-b border-black/15 bg-gray-50/50">
-              <h3 className="text-lg font-bold text-gray-900">Monthly Reports</h3>
-              <p className="text-xs text-gray-500">Generate detailed monthly activity reports for staff members</p>
-            </div>
-            <div className="p-6 space-y-6">
-              {/* Report Filters */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label>Staff Member</Label>
-                  <Select value={selectedUser} onValueChange={setSelectedUser}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select staff" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {uniqueUsers.map(user => (
-                        <SelectItem key={user.id} value={user.id}>
-                          {user.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Month</Label>
-                  <Select value={selectedMonth.toString()} onValueChange={(v: string) => setSelectedMonth(parseInt(v))}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Array.from({ length: 12 }, (_, i) => i + 1).map(month => (
-                        <SelectItem key={month} value={month.toString()}>
-                          {new Date(2024, month - 1).toLocaleString('default', { month: 'long' })}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Year</Label>
-                  <Select value={selectedYear.toString()} onValueChange={(v: string) => setSelectedYear(parseInt(v))}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Array.from({ length: 60 }, (_, i) => 2020 + i).map(year => (
-                        <SelectItem key={year} value={year.toString()}>
-                          {year}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {selectedUser !== 'all' && (
-                <>
-                  {/* Report Summary */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 lg:items-stretch">
-                    <div className="p-4 bg-gray-50 rounded-none border border-black/15 flex flex-col justify-center">
-                      <p className="text-xs text-gray-400 font-medium mb-1">Total Activities</p>
-                      <p className="text-xl font-bold text-gray-900">{monthlyReportData.length}</p>
-                    </div>
-                    <div className="p-4 bg-gray-50 rounded-none border border-black/15 flex flex-col justify-center">
-                      <p className="text-xs text-gray-400 font-medium mb-1">Login Sessions</p>
-                      <p className="text-xl font-bold text-gray-900">
-                        {monthlyReportData.filter(l => l.activityType === 'login').length}
-                      </p>
-                    </div>
-                    <div className="p-4 bg-gray-50 rounded-none border border-black/15 flex flex-col justify-center">
-                      <p className="text-xs text-gray-400 font-medium mb-1">Customers Added</p>
-                      <p className="text-xl font-bold text-gray-900">
-                        {monthlyReportData.filter(l => l.activityType === 'customer_added').length}
-                      </p>
-                    </div>
-                    <div className="p-4 bg-gray-50 rounded-none border border-black/15 flex flex-col justify-center">
-                      <p className="text-xs text-gray-400 font-medium mb-1">Loans Created</p>
-                      <p className="text-xl font-bold text-gray-900">
-                        {monthlyReportData.filter(l => l.activityType === 'loan_created').length}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end">
-                  <Button 
-                    onClick={exportMonthlyReport} 
-                    disabled={monthlyReportData.length === 0}
-                    className="bg-yellow-500 text-white hover:bg-yellow-600"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    Download Report
-                  </Button>
-                  </div>
-
-                  {/* Monthly Report Table */}
-                  <div className="rounded-none border border-black/15 overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Date & Time</TableHead>
-                            <TableHead>Activity</TableHead>
-                            <TableHead>Description</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {monthlyReportData.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={3} className="text-center py-8 text-gray-500">
-                                <Calendar className="w-12 h-12 mx-auto mb-2 text-gray-300" />
-                                <p>No activities for this period</p>
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            monthlyReportData.map((log) => (
-                              <TableRow key={log.id}>
-                                <TableCell className="font-mono text-xs">
-                                  {new Date(log.timestamp).toLocaleString()}
-                                </TableCell>
-                                <TableCell>
-                                  <Badge variant={getActivityBadgeVariant(log.activityType)} className="gap-1">
-                                    {getActivityIcon(log.activityType)}
-                                    <span>{log.activityType.replace(/_/g, ' ')}</span>
-                                  </Badge>
-                                </TableCell>
-                                <TableCell>{log.description}</TableCell>
-                              </TableRow>
-                            ))
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {selectedUser === 'all' && (
-                <div className="text-center py-12 text-gray-500">
-                  <FileText className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                  <p className="text-lg font-medium">Select a staff member to view monthly report</p>
-                  <p className="text-sm mt-2">Choose a staff member from the dropdown above</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </TabsContent>
-
-        {/* Transfer Requests Tab */}
-        <TabsContent value="transfers" className="space-y-4">
-          <div className="bg-white rounded-none border border-black/15 shadow-sm p-6 overflow-hidden">
-             <AdminTransferDashboard currentUser={currentUser} />
-          </div>
-        </TabsContent>
-      </Tabs>
-
-      <ConfirmationModal
-        isOpen={showClearConfirm}
-        onClose={() => setShowClearConfirm(false)}
-        onConfirm={confirmClearLogs}
-        title="Clear Activity Logs"
-        message="Are you sure you want to clear all activity logs? This will permanently remove all activity history for all staff members and cannot be undone."
-        confirmText="Clear All Logs"
-        type="danger"
-      />
+        </div>
+      )}
     </div>
   );
 }

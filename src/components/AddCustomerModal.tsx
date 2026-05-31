@@ -1,7 +1,9 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { X, Plus, Trash2, FileText, Camera, Check, Link as LinkIcon, Eye } from 'lucide-react';
 import { Customer, KYCDocument } from '../types';
 import { saveUploadedFile, openLocalFile } from '../lib/fileService';
+import { getAllCustomers } from '../lib/db/customerService';
+import { getSystemWorkingDate } from '../lib/workingDate';
 
 interface AddCustomerModalProps {
   onClose: () => void;
@@ -17,16 +19,47 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
   });
 
   const [kycDocs, setKycDocs] = useState<Partial<KYCDocument>[]>([
-    { id: '1', type: 'Aadhaar Card', number: '', status: 'pending' }
+    { id: '1', type: '', number: '', status: 'pending' }
   ]);
+
+  const [existingCustomers, setExistingCustomers] = useState<Customer[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      setExistingCustomers(getAllCustomers());
+    } catch (e) {
+      console.error('Failed to load existing customers:', e);
+    }
+  }, []);
+
+  const [customerPhotoUrl, setCustomerPhotoUrl] = useState<string | undefined>();
+  const [customerPhotoFileName, setCustomerPhotoFileName] = useState<string | undefined>();
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
 
+  const handlePhotoChange = async (file: File | null) => {
+    if (!file) return;
+    
+    setIsUploadingPhoto(true);
+    try {
+      const filePath = await saveUploadedFile(file, (formData.name || 'temporary_customer') + '_photo');
+      setCustomerPhotoUrl(filePath);
+      setCustomerPhotoFileName(file.name);
+    } catch (err) {
+      console.error('Photo upload failed:', err);
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
   const handleAddDoc = () => {
     setKycDocs([
       ...kycDocs,
-      { id: Date.now().toString(), type: 'PAN Card', number: '', status: 'pending' }
+      { id: Date.now().toString(), type: '', number: '', status: 'pending' }
     ]);
   };
 
@@ -57,9 +90,9 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
   };
 
   const isFormValid = () => {
-    const isPersonalInfoValid = !!(formData.name && formData.phone && formData.email && formData.address);
-    const areDocsValid = kycDocs.every(doc => validateDocNumber(doc.type || '', doc.number || ''));
-    return isPersonalInfoValid && areDocsValid && !isUploading;
+    const isPersonalInfoValid = !!(formData.name && formData.phone && formData.email && formData.address && customerPhotoUrl);
+    const areDocsValid = kycDocs.every(doc => doc.type && validateDocNumber(doc.type || '', doc.number || ''));
+    return isPersonalInfoValid && areDocsValid && !isUploading && !isUploadingPhoto;
   };
 
   const handleUpdateDoc = (id: string, field: keyof KYCDocument, value: any) => {
@@ -100,8 +133,17 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Validate that we have at least one valid doc or whatever requirements
+    setErrorMessage(null);
+
+    // 1. Check if phone number already exists
+    const cleanPhone = formData.phone.trim().replace(/\D/g, '');
+    const phoneExists = existingCustomers.some(c => c.phone.trim().replace(/\D/g, '') === cleanPhone);
+    if (phoneExists) {
+      setErrorMessage("A customer with this phone number is already registered!");
+      return;
+    }
+
+    // 2. Validate that we have at least one valid doc or whatever requirements
     const finalKycDocs: KYCDocument[] = kycDocs.map(doc => ({
       id: doc.id || Date.now().toString(),
       type: doc.type || 'Other',
@@ -112,6 +154,24 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
       fileType: doc.fileType,
     }));
 
+    // 3. Check if any KYC document number already exists
+    for (const doc of finalKycDocs) {
+      if (!doc.number) continue;
+      const cleanNum = doc.number.trim().toUpperCase();
+      
+      const docExists = existingCustomers.some(c => {
+        if (c.kycDocuments && c.kycDocuments.length > 0) {
+          return c.kycDocuments.some(cd => cd.number.trim().toUpperCase() === cleanNum);
+        }
+        return c.kycNumber.trim().toUpperCase() === cleanNum;
+      });
+
+      if (docExists) {
+        setErrorMessage(`A customer with KYC Document (${doc.type}) number ${doc.number} is already registered!`);
+        return;
+      }
+    }
+
     const newCustomer: Customer = {
       id: Date.now().toString(),
       ...formData,
@@ -119,7 +179,8 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
       kycNumber: finalKycDocs[0]?.number || 'N/A',   // Legacy support
       kycDocuments: finalKycDocs,
       kycStatus: 'pending',
-      createdAt: new Date().toISOString().split('T')[0],
+      photoUrl: customerPhotoUrl,
+      createdAt: getSystemWorkingDate(),
     };
 
     onAdd(newCustomer);
@@ -147,6 +208,18 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
         </div>
 
         <form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-6 md:space-y-8">
+          {errorMessage && (
+            <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-none flex items-center justify-between text-sm shadow-sm">
+              <span className="font-semibold">{errorMessage}</span>
+              <button 
+                type="button" 
+                onClick={() => setErrorMessage(null)}
+                className="text-red-500 hover:text-red-700 font-bold ml-4"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           {/* Personal Information */}
           <div className="space-y-4">
             <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
@@ -209,6 +282,71 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
                   placeholder="Full residential address"
                 />
               </div>
+
+              {/* Customer Photo Upload Section */}
+              <div className="space-y-1.5 md:col-span-2">
+                <label className="block text-xs font-bold text-gray-600 uppercase ml-1">
+                  Customer Photo <span className="text-red-500">*</span>
+                </label>
+                <div className="flex flex-col sm:flex-row items-center gap-3">
+                  <input
+                    type="file"
+                    ref={photoInputRef}
+                    onChange={(e) => handlePhotoChange(e.target.files?.[0] || null)}
+                    className="hidden"
+                    accept="image/*"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => photoInputRef.current?.click()}
+                    disabled={isUploadingPhoto}
+                    className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-none border border-black/15 transition-all border-2 border-dashed w-full sm:w-auto justify-center ${
+                      customerPhotoUrl 
+                        ? 'border-black/15 bg-green-50 text-green-700' 
+                        : 'border-black/15 bg-white text-gray-500 hover:border-black/15 hover:bg-yellow-50'
+                    }`}
+                  >
+                    {customerPhotoUrl ? (
+                      <>
+                        <Check className="w-4 h-4" />
+                        Photo Uploaded
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="w-4 h-4" />
+                        {isUploadingPhoto ? 'Uploading...' : 'Upload Customer Photo'}
+                      </>
+                    )}
+                  </button>
+                  {customerPhotoFileName && (
+                    <div className="flex items-center gap-2 text-xs text-gray-400 bg-white px-3 py-1.5 rounded-none border border-black/15">
+                      <LinkIcon className="w-3 h-3" />
+                      <span className="truncate max-w-[150px] md:max-w-[200px]">{customerPhotoFileName}</span>
+                      <div className="flex items-center gap-1 ml-1 border-l pl-2 border-black/15">
+                        <button
+                          type="button"
+                          onClick={() => openLocalFile(customerPhotoUrl!)}
+                          className="p-1 text-blue-500 hover:bg-blue-50 rounded transition-colors"
+                          title="View Photo"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomerPhotoUrl(undefined);
+                            setCustomerPhotoFileName(undefined);
+                          }}
+                          className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors"
+                          title="Remove Photo"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -252,10 +390,11 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
                     <div className="space-y-1.5">
                       <label className="block text-[10px] font-bold text-gray-500 uppercase ml-1">Document Type</label>
                       <select
-                        value={doc.type}
+                        value={doc.type || ''}
                         onChange={(e) => handleUpdateDoc(doc.id!, 'type', e.target.value)}
                         className="w-full px-3 py-2 text-sm bg-white border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none"
                       >
+                        <option value="">Select Document Type...</option>
                         <option value="Aadhaar Card">Aadhaar Card</option>
                         <option value="PAN Card">PAN Card</option>
                         <option value="Passport">Passport</option>

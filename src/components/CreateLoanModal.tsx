@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Calculator, Camera, Check, Link as LinkIcon, Eye } from 'lucide-react';
-import { Loan, Customer, GoldRate, LoanType, User } from '../types';
+import { X, Calculator, Camera, Check, Link as LinkIcon, Eye, Search } from 'lucide-react';
+import { Loan, Customer, GoldRate, User } from '../types';
 import { getAllCustomers } from '../lib/db/customerService';
-import { getLoanTypes } from '../lib/db/loanService';
 import { getAllGoldRates } from '../lib/db/goldRateService';
 import { saveUploadedFile, openLocalFile } from '../lib/fileService';
+import { getSystemWorkingDate } from '../lib/workingDate';
 
 interface CreateLoanModalProps {
   onClose: () => void;
@@ -15,7 +15,6 @@ interface CreateLoanModalProps {
 export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanModalProps) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [goldRates, setGoldRates] = useState<GoldRate[]>([]);
-  const [loanTypes, setLoanTypes] = useState<LoanType[]>([]);
 
   useEffect(() => {
     try {
@@ -26,66 +25,56 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
       
       setCustomers(filteredCustomers);
       setGoldRates(getAllGoldRates());
-      setLoanTypes(getLoanTypes());
     } catch {}
   }, [currentUser]);
 
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [goldWeight, setGoldWeight] = useState('');
-  const [goldType, setGoldType] = useState<'24K' | '22K' | '18K'>('22K');
+  const [goldType, setGoldType] = useState<'24K' | '22K' | '18K' | ''>('');
   const [itemType, setItemType] = useState('Ring');
   const [customItemType, setCustomItemType] = useState('');
-  const [loanTypeId, setLoanTypeId] = useState('');
   const [loanAmount, setLoanAmount] = useState('');
   const [tenure, setTenure] = useState('');
   const [interestRate, setInterestRate] = useState('');
+  const [penaltyRate, setPenaltyRate] = useState('2');
+  const [repaymentScheme, setRepaymentScheme] = useState<'EMI' | 'BULLET' | ''>('');
+  const [ltvPercentage, setLtvPercentage] = useState('');
   
   const [lockerNumber, setLockerNumber] = useState('');
   const [packetNumber, setPacketNumber] = useState('');
-  const [ornamentPhotoUrl, setOrnamentPhotoUrl] = useState<string | undefined>();
-  const [ornamentFileName, setOrnamentFileName] = useState<string | undefined>();
+  const [ornamentPhotos, setOrnamentPhotos] = useState<{ url: string; name: string }[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [goldValue, setGoldValue] = useState(0);
   const [maxLoanAmount, setMaxLoanAmount] = useState(0);
   const [emiAmount, setEmiAmount] = useState(0);
-  const [effectiveLTV, setEffectiveLTV] = useState(0);
 
   const verifiedCustomers = customers.filter(c => c.kycStatus === 'verified');
-  const selectedLoanType = loanTypes.find(lt => lt.id === loanTypeId);
+  const filteredVerifiedCustomers = verifiedCustomers.filter(customer =>
+    customer.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
+    customer.phone.includes(customerSearch)
+  );
   const goldRate = goldRates.find(gr => gr.goldType === goldType)?.ratePerGram || 0;
 
-  // Calculate gold value and max loan amount
+  // Calculate gold value and max loan amount based on manual LTV%
   useEffect(() => {
     const weight = parseFloat(goldWeight) || 0;
     const value = weight * goldRate;
-    
-    // Tiered LTV Logic: 85% for loans up to ₹2.5 Lakh, 75% for larger loans
-    const threshold = 250000;
-    const smallLTV = 0.85;
-    const largeLTV = 0.75;
-    
-    let calculatedMax = Math.floor(Math.max(Math.min(value * smallLTV, threshold), value * largeLTV));
-    
     setGoldValue(value);
+
+    const ltvVal = parseFloat(ltvPercentage) || 0;
+    const calculatedMax = Math.floor(value * (ltvVal / 100));
     setMaxLoanAmount(calculatedMax);
-    setEffectiveLTV(value > 0 ? Math.round((calculatedMax / value) * 100) : 0);
     
     if (calculatedMax > 0) {
-      // Auto-select a loan type if none is selected
-      if (!loanTypeId && loanTypes.length > 0) {
-        // Find a loan type where the calculated max fits within its range
-        const bestType = loanTypes.find(lt => calculatedMax >= lt.minAmount) || loanTypes[0];
-        if (bestType) setLoanTypeId(bestType.id);
-      }
-
-      // Respect loan type maximum if one is selected
-      const currentType = selectedLoanType || loanTypes.find(lt => lt.id === loanTypeId);
-      const finalMax = currentType ? Math.min(calculatedMax, currentType.maxAmount) : calculatedMax;
-      setLoanAmount(finalMax.toString());
+      setLoanAmount(calculatedMax.toString());
+    } else {
+      setLoanAmount('');
     }
-  }, [goldWeight, goldRate, selectedLoanType, loanTypes]);
+  }, [goldWeight, goldRate, ltvPercentage]);
 
   // File upload handler
   const handleFileChange = async (file: File | null) => {
@@ -96,8 +85,7 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
       const customer = verifiedCustomers.find(c => c.id === selectedCustomerId);
       const name = customer ? customer.name : 'unknown_customer';
       const filePath = await saveUploadedFile(file, name + '_ornament');
-      setOrnamentPhotoUrl(filePath);
-      setOrnamentFileName(file.name);
+      setOrnamentPhotos(prev => [...prev, { url: filePath, name: file.name }]);
     } catch (err) {
       console.error('Upload failed:', err);
     } finally {
@@ -125,32 +113,45 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
     e.preventDefault();
     
     const customer = verifiedCustomers.find(c => c.id === selectedCustomerId);
-    if (!customer || !selectedLoanType) return;
+    if (!customer) return;
 
-    const startDate = new Date();
-    const endDate = new Date();
-    endDate.setMonth(endDate.getMonth() + parseInt(tenure));
+    const workingDateStr = getSystemWorkingDate();
+    const [yr, mo, dy] = workingDateStr.split('-').map(Number);
+    const startDate = new Date(yr, mo - 1, dy);
+    const endDate = new Date(yr, mo - 1 + parseInt(tenure), dy);
+
+    const formatLocalDate = (d: Date) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    const startDateStr = formatLocalDate(startDate);
+    const endDateStr = formatLocalDate(endDate);
 
     const newLoan: Loan = {
       id: Date.now().toString(),
       customerId: selectedCustomerId,
       customerName: customer.name,
       goldWeight: parseFloat(goldWeight),
-      goldType,
+      goldType: goldType as '24K' | '22K' | '18K',
       goldValue,
       itemType: itemType === 'Other' ? customItemType : itemType,
       loanAmount: parseFloat(loanAmount),
-      loanTypeId,
-      loanTypeName: selectedLoanType.name,
-      interestRate: parseFloat(interestRate) || selectedLoanType.interestRate,
+      loanTypeId: 'standard',
+      loanTypeName: 'Standard Gold Loan',
+      interestRate: parseFloat(interestRate) || 18,
       tenure: parseInt(tenure),
-      startDate: startDate.toISOString().split('T')[0],
-      endDate: endDate.toISOString().split('T')[0],
+      startDate: startDateStr,
+      endDate: endDateStr,
       status: 'active',
-      emiAmount,
+      emiAmount: repaymentScheme === 'EMI' ? emiAmount : 0,
       lockerNumber,
       packetNumber,
-      ornamentPhotoUrl,
+      ornamentPhotoUrl: ornamentPhotos.length > 0 ? JSON.stringify(ornamentPhotos) : undefined,
+      repaymentScheme: repaymentScheme as 'EMI' | 'BULLET',
+      penaltyRate: parseFloat(penaltyRate) || 2,
     };
 
     onCreate(newLoan);
@@ -158,16 +159,12 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
 
   const isValidLoanAmount = () => {
     const amount = parseFloat(loanAmount) || 0;
-    if (!selectedLoanType) return false;
-    return amount >= selectedLoanType.minAmount && 
-           amount <= selectedLoanType.maxAmount && 
-           amount <= maxLoanAmount;
+    return amount > 0 && amount <= maxLoanAmount;
   };
 
   const isValidTenure = () => {
     const months = parseInt(tenure) || 0;
-    if (!selectedLoanType) return false;
-    return months >= selectedLoanType.minTenure && months <= selectedLoanType.maxTenure;
+    return months >= 1 && months <= 120;
   };
 
   return (
@@ -191,19 +188,83 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Select Customer (KYC Verified Only) <span className="text-red-500">*</span>
               </label>
-              <select
-                required
-                value={selectedCustomerId}
-                onChange={(e) => setSelectedCustomerId(e.target.value)}
-                className="w-full px-4 py-2 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
-              >
-                <option value="">Choose a customer...</option>
-                {verifiedCustomers.map(customer => (
-                  <option key={customer.id} value={customer.id}>
-                    {customer.name} - {customer.phone}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <div className="relative flex items-center">
+                  <input
+                    type="text"
+                    required={!selectedCustomerId}
+                    placeholder="Search customer by name or phone number..."
+                    value={customerSearch}
+                    onChange={(e) => {
+                      setCustomerSearch(e.target.value);
+                      setShowCustomerDropdown(true);
+                      if (!e.target.value) {
+                        setSelectedCustomerId('');
+                      }
+                    }}
+                    onFocus={() => setShowCustomerDropdown(true)}
+                    className="w-full pl-4 pr-10 py-2.5 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent text-sm bg-white"
+                  />
+                  {selectedCustomerId ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCustomerId('');
+                        setCustomerSearch('');
+                        setShowCustomerDropdown(false);
+                      }}
+                      className="absolute right-3 text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <Search className="w-4 h-4 text-gray-400 absolute right-3 pointer-events-none" />
+                  )}
+                </div>
+
+                {/* Combobox Dropdown */}
+                {showCustomerDropdown && (
+                  <>
+                    {/* Click outside backdrop to close */}
+                    <div 
+                      className="fixed inset-0 z-10" 
+                      onClick={() => setShowCustomerDropdown(false)}
+                    />
+                    
+                    <div className="absolute left-0 right-0 mt-1 bg-white border border-black/15 shadow-xl max-h-60 overflow-y-auto z-20 divide-y divide-gray-100">
+                      {filteredVerifiedCustomers.length > 0 ? (
+                        filteredVerifiedCustomers.map(customer => {
+                          const isSelected = selectedCustomerId === customer.id;
+                          return (
+                            <button
+                              key={customer.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedCustomerId(customer.id);
+                                setCustomerSearch(`${customer.name} — ${customer.phone}`);
+                                setShowCustomerDropdown(false);
+                              }}
+                              className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center justify-between ${
+                                isSelected ? 'bg-yellow-50 text-yellow-800 font-semibold' : 'hover:bg-gray-50 text-gray-700'
+                              }`}
+                            >
+                              <div>
+                                <p className="font-medium">{customer.name}</p>
+                                <p className="text-xs text-gray-400 font-mono mt-0.5">{customer.phone}</p>
+                              </div>
+                              {isSelected && <Check className="w-4 h-4 text-yellow-600" />}
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                          No matching verified customers found.
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
               {verifiedCustomers.length === 0 && (
                 <p className="text-sm text-red-600 mt-2">No verified customers available. Please verify customer KYC first.</p>
               )}
@@ -213,7 +274,7 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
           {/* Gold Details */}
           <div>
             <h4 className="text-sm font-medium text-gray-900 mb-4">Gold Details</h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Gold Weight (grams) <span className="text-red-500">*</span>
@@ -239,9 +300,10 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
                   onChange={(e) => setGoldType(e.target.value as any)}
                   className="w-full px-4 py-2 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
                 >
-                   <option value="24K">24K - ₹{goldRates.find(r => r.goldType === '24K')?.ratePerGram}/g</option>
-                   <option value="22K">22K - ₹{goldRates.find(r => r.goldType === '22K')?.ratePerGram}/g</option>
-                   <option value="18K">18K - ₹{goldRates.find(r => r.goldType === '18K')?.ratePerGram}/g</option>
+                   <option value="">Select Gold Type...</option>
+                   <option value="24K">24K - ₹{goldRates.find(r => r.goldType === '24K')?.ratePerGram || 0}/g</option>
+                   <option value="22K">22K - ₹{goldRates.find(r => r.goldType === '22K')?.ratePerGram || 0}/g</option>
+                   <option value="18K">18K - ₹{goldRates.find(r => r.goldType === '18K')?.ratePerGram || 0}/g</option>
                 </select>
               </div>
 
@@ -250,6 +312,23 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
                 <div className="w-full px-4 py-2 bg-gray-50 border border-black/15 rounded-none border border-black/15">
                   <p className="text-gray-900 font-medium">₹{goldValue.toLocaleString()}</p>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  LTV (%) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  required
+                  value={ltvPercentage}
+                  onChange={(e) => setLtvPercentage(e.target.value)}
+                  className="w-full px-4 py-2 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                  placeholder="75"
+                  min="1"
+                  max="100"
+                />
               </div>
             </div>
 
@@ -315,8 +394,8 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
             </div>
 
             <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Ornament Photo</label>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Ornament Photos (Upload at least 1)</label>
+              <div className="space-y-3">
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -324,54 +403,56 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
                   className="hidden"
                   accept=".pdf,image/*"
                 />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploading}
-                  className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-none border border-black/15 transition-all border-2 border-dashed w-full sm:w-auto justify-center ${
-                    ornamentPhotoUrl 
-                      ? 'border-black/15 bg-green-50 text-green-700' 
-                      : 'border-black/15 bg-white text-gray-500 hover:border-black/15 hover:bg-yellow-50'
-                  }`}
-                >
-                  {ornamentPhotoUrl ? (
-                    <>
-                      <Check className="w-4 h-4" />
-                      Photo Uploaded
-                    </>
-                  ) : (
-                    <>
-                      <Camera className="w-4 h-4" />
-                      {isUploading ? 'Uploading...' : 'Upload Photo'}
-                    </>
+                
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                    className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-none border border-black/15 bg-white text-gray-500 hover:border-yellow-500 hover:bg-yellow-50 justify-center w-full sm:w-auto"
+                  >
+                    <Camera className="w-4 h-4" />
+                    {isUploading ? 'Uploading...' : 'Upload Ornament Photo'}
+                  </button>
+
+                  {ornamentPhotos.length > 0 && (
+                    <span className="text-xs font-bold text-green-700 bg-green-50 px-2.5 py-1.5 border border-green-200 inline-flex items-center gap-1.5">
+                      <Check className="w-3.5 h-3.5" />
+                      {ornamentPhotos.length} {ornamentPhotos.length === 1 ? 'Photo' : 'Photos'} Uploaded
+                    </span>
                   )}
-                </button>
-                {ornamentFileName && (
-                  <div className="flex items-center gap-2 text-xs text-gray-400 bg-white px-3 py-1.5 rounded-none border border-black/15">
-                    <LinkIcon className="w-3 h-3" />
-                    <span className="truncate max-w-[150px] md:max-w-[200px]">{ornamentFileName}</span>
-                    <div className="flex items-center gap-1 ml-1 border-l pl-2 border-black/15">
-                      <button
-                        type="button"
-                        onClick={() => openLocalFile(ornamentPhotoUrl!)}
-                        className="p-1 text-blue-500 hover:bg-blue-50 rounded transition-colors"
-                        title="View Document"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOrnamentPhotoUrl(undefined);
-                          setOrnamentFileName(undefined);
-                          if (fileInputRef.current) fileInputRef.current.value = '';
-                        }}
-                        className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors"
-                        title="Remove File"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                </div>
+
+                {ornamentPhotos.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                    {ornamentPhotos.map((photo, index) => (
+                      <div key={index} className="flex items-center justify-between text-xs text-gray-600 bg-white p-2.5 rounded-none border border-black/15 shadow-sm">
+                        <div className="flex items-center gap-2 truncate">
+                          <LinkIcon className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                          <span className="truncate font-semibold">{photo.name}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 border-l pl-2 border-black/15 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => openLocalFile(photo.url)}
+                            className="p-1 text-blue-500 hover:bg-blue-50 rounded transition-colors"
+                            title="View Document"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOrnamentPhotos(prev => prev.filter((_, i) => i !== index));
+                            }}
+                            className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors"
+                            title="Remove File"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -379,106 +460,130 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
 
             <div className="mt-3 p-3 bg-blue-50 border border-black/15 rounded-none border border-black/15">
               <p className="text-sm text-blue-800">
-                <strong>Max Loan Amount (Up to {effectiveLTV}% LTV):</strong> ₹{maxLoanAmount.toLocaleString()}
+                <strong>Max Loan Amount (Up to {ltvPercentage}% LTV):</strong> ₹{maxLoanAmount.toLocaleString()}
               </p>
             </div>
           </div>
 
-          {/* Loan Type Selection */}
-          <div>
-            <h4 className="text-sm font-medium text-gray-900 mb-4">Loan Type</h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {loanTypes.map(loanType => (
-                <div
-                  key={loanType.id}
-                  onClick={() => {
-                    setLoanTypeId(loanType.id);
-                    setInterestRate(loanType.interestRate.toString());
-                  }}
-                  className={`p-4 border-2 rounded-none border border-black/15 cursor-pointer transition-all ${
-                    loanTypeId === loanType.id
-                      ? 'border-black/15 bg-yellow-50'
-                      : 'border-black/15 hover:border-black/15'
-                  }`}
-                >
-                  <h5 className="font-medium text-gray-900 mb-2">{loanType.name}</h5>
-                  <div className="space-y-1 text-sm text-gray-600">
-                    <p>Interest: {loanType.interestRate}% p.a.</p>
-                    <p>Amount: ₹{(loanType.minAmount / 1000).toFixed(0)}K - ₹{(loanType.maxAmount / 100000).toFixed(0)}L</p>
-                    <p>Tenure: {loanType.minTenure}-{loanType.maxTenure} months</p>
-                  </div>
-                </div>
-              ))}
+          {/* Loan Details */}
+          <div className="space-y-6">
+            <h4 className="text-sm font-medium text-gray-900 mb-4 border-b pb-2">Loan Structure</h4>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Repayment Scheme <span className="text-red-500">*</span>
+              </label>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <label className={`flex-1 flex items-center justify-center gap-2 p-3 border-2 cursor-pointer transition-all text-sm font-bold ${
+                  repaymentScheme === 'BULLET' ? 'border-yellow-500 bg-yellow-50 text-yellow-800' : 'border-black/15 bg-white text-gray-600 hover:bg-gray-50'
+                }`}>
+                  <input 
+                    type="radio" 
+                    name="repaymentScheme" 
+                    value="BULLET" 
+                    checked={repaymentScheme === 'BULLET'} 
+                    onChange={() => setRepaymentScheme('BULLET')}
+                    className="hidden" 
+                  />
+                  Gold Loan Bullet (Dynamic Interest)
+                </label>
+                <label className={`flex-1 flex items-center justify-center gap-2 p-3 border-2 cursor-pointer transition-all text-sm font-bold ${
+                  repaymentScheme === 'EMI' ? 'border-yellow-500 bg-yellow-50 text-yellow-800' : 'border-black/15 bg-white text-gray-600 hover:bg-gray-50'
+                }`}>
+                  <input 
+                    type="radio" 
+                    name="repaymentScheme" 
+                    value="EMI" 
+                    checked={repaymentScheme === 'EMI'} 
+                    onChange={() => setRepaymentScheme('EMI')}
+                    className="hidden" 
+                  />
+                  Standard Monthly EMI
+                </label>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                {repaymentScheme === 'BULLET' 
+                  ? 'Interest accrues daily. Customer can pay interest-only or lump sums anytime.' 
+                  : 'Fixed monthly payments including both principal and interest.'}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Interest Rate (% p.a.) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={interestRate}
+                  onChange={(e) => setInterestRate(e.target.value)}
+                  className="w-full px-4 py-2 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                  placeholder="e.g., 18"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Overdue Penalty (% per month) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={penaltyRate}
+                  onChange={(e) => setPenaltyRate(e.target.value)}
+                  className="w-full px-4 py-2 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                  placeholder="e.g., 2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Loan Amount (₹) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  required
+                  value={loanAmount}
+                  onChange={(e) => setLoanAmount(e.target.value)}
+                  className="w-full px-4 py-2 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                  placeholder="200000"
+                  min={1}
+                  max={maxLoanAmount}
+                />
+                {loanAmount && !isValidLoanAmount() && (
+                  <p className="text-sm text-red-600 mt-1">
+                    Amount must be less than or equal to Max Loan Amount (₹{maxLoanAmount.toLocaleString()})
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Tenure (months) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  required
+                  value={tenure}
+                  onChange={(e) => setTenure(e.target.value)}
+                  className="w-full px-4 py-2 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                  placeholder="12"
+                  min={1}
+                  max={60}
+                />
+                {tenure && !isValidTenure() && (
+                  <p className="text-sm text-red-600 mt-1">
+                    Tenure must be between 1 and 60 months
+                  </p>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Loan Details */}
-          {selectedLoanType && (
-            <div>
-              <h4 className="text-sm font-medium text-gray-900 mb-4">Loan Details</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Interest Rate (% p.a.) <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={interestRate}
-                    onChange={(e) => setInterestRate(e.target.value)}
-                    className="w-full px-4 py-2 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
-                    placeholder="e.g., 18"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Loan Amount (₹) <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="1"
-                    required
-                    value={loanAmount}
-                    onChange={(e) => setLoanAmount(e.target.value)}
-                    className="w-full px-4 py-2 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
-                    placeholder="200000"
-                    min={selectedLoanType.minAmount}
-                    max={Math.min(selectedLoanType.maxAmount, maxLoanAmount)}
-                  />
-                  {loanAmount && !isValidLoanAmount() && (
-                    <p className="text-sm text-red-600 mt-1">
-                      Amount must be between ₹{selectedLoanType.minAmount.toLocaleString()} and ₹{Math.min(selectedLoanType.maxAmount, maxLoanAmount).toLocaleString()}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Tenure (months) <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    value={tenure}
-                    onChange={(e) => setTenure(e.target.value)}
-                    className="w-full px-4 py-2 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
-                    placeholder="24"
-                    min={selectedLoanType.minTenure}
-                    max={selectedLoanType.maxTenure}
-                  />
-                  {tenure && !isValidTenure() && (
-                    <p className="text-sm text-red-600 mt-1">
-                      Tenure must be between {selectedLoanType.minTenure} and {selectedLoanType.maxTenure} months
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* EMI Calculation */}
-          {emiAmount > 0 && (
+          {repaymentScheme === 'EMI' && emiAmount > 0 && (
             <div className="p-6 bg-gradient-to-r from-yellow-50 to-orange-50 border border-black/15 rounded-none border border-black/15">
               <div className="flex items-center gap-3 mb-4">
                 <Calculator className="w-6 h-6 text-yellow-600" />
@@ -516,7 +621,7 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
             </button>
             <button
               type="submit"
-              disabled={!selectedCustomerId || !goldWeight || !loanTypeId || !loanAmount || !tenure || !isValidLoanAmount() || !isValidTenure() || (itemType === 'Other' && !customItemType)}
+              disabled={!selectedCustomerId || !goldWeight || !goldType || !ltvPercentage || !loanAmount || !tenure || !interestRate || !repaymentScheme || !isValidLoanAmount() || !isValidTenure() || (itemType === 'Other' && !customItemType) || ornamentPhotos.length === 0}
               className="px-6 py-2 bg-yellow-500 text-white rounded-none border border-black/15 hover:bg-yellow-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
               Create Loan

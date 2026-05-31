@@ -1,5 +1,6 @@
 import { Customer, KYCDocument } from '../../types';
 import { getDB, saveDB } from '../database';
+import { getSystemWorkingDate } from '../workingDate';
 
 function rowToCustomer(row: any[]): Customer {
   const kycDocsJson = row[11] as string | undefined;
@@ -39,8 +40,10 @@ function rowToCustomer(row: any[]): Customer {
 
 export function getAllCustomers(): Customer[] {
   const db = getDB();
+  const today = getSystemWorkingDate();
   const result = db.exec(
-    'SELECT id, name, email, phone, address, kyc_status, kyc_document, kyc_number, created_at, photo_url, created_by, kyc_docs_json FROM customers ORDER BY created_at DESC'
+    'SELECT id, name, email, phone, address, kyc_status, kyc_document, kyc_number, created_at, photo_url, created_by, kyc_docs_json FROM customers WHERE created_at <= ? ORDER BY created_at DESC',
+    [today]
   );
   if (!result.length) return [];
   return result[0].values.map(rowToCustomer);

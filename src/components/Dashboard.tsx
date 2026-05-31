@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, CreditCard, AlertCircle, TrendingUp, CheckCircle, Clock, DollarSign, Calendar } from 'lucide-react';
+import { Users, CreditCard, AlertCircle, TrendingUp, CheckCircle, Clock, IndianRupee, Calendar } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 import { User, Customer, Loan, EMI, ActivityLog } from '../types';
 import { getAllCustomers } from '../lib/db/customerService';
@@ -7,6 +7,7 @@ import { getAllLoans } from '../lib/db/loanService';
 import { getAllEMIs } from '../lib/db/emiService';
 import { getActivityLogs } from '../lib/activityLogger';
 import { ConfirmationModal } from './ConfirmationModal';
+import { getSystemWorkingDate } from '../lib/workingDate';
 
 interface DashboardProps {
   currentUser: User;
@@ -47,8 +48,8 @@ export function Dashboard({ currentUser }: DashboardProps) {
   const verifiedCustomers = customers.filter((c: Customer) => c.kycStatus === 'verified').length;
   const activeLoansCount = loans.filter((l: Loan) => l.status === 'active').length;
   const totalLoanAmount = loans.filter((l: Loan) => l.status === 'active').reduce((sum: number, loan: Loan) => sum + loan.loanAmount, 0);
-  const pendingEMIs = emis.filter((e: EMI) => e.status === 'pending').length;
-  const overdueEMIs = emis.filter((e: EMI) => e.status === 'overdue').length;
+  const pendingEMIs = new Set(emis.filter((e: EMI) => e.status === 'pending').map(e => e.loanId)).size;
+  const overdueEMIs = new Set(emis.filter((e: EMI) => e.status === 'overdue').map(e => e.loanId)).size;
   const collectedEMIs = emis.filter((e: EMI) => e.status === 'paid').reduce((sum: number, emi: EMI) => sum + (emi.paidAmount || 0), 0);
 
   const stats = [
@@ -63,7 +64,7 @@ export function Dashboard({ currentUser }: DashboardProps) {
       label: 'Active Loans',
       value: activeLoansCount,
       subValue: `₹${(totalLoanAmount / 100000).toFixed(1)}L total`,
-      icon: DollarSign,
+      icon: IndianRupee,
       color: 'bg-yellow-500',
     },
     {
@@ -115,7 +116,7 @@ export function Dashboard({ currentUser }: DashboardProps) {
 
       {/* Current Month's Pending EMIs */}
       {(() => {
-        const now = new Date();
+        const now = new Date(getSystemWorkingDate());
         const currentMonth = now.getMonth();
         const currentYear = now.getFullYear();
         

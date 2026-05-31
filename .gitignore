@@ -51,3 +51,6 @@ Desktop.ini
 public/sql-wasm.wasm
 public/sql-wasm-browser.wasm
 
+# Vite & ESLint cache
+.vite/
+.eslintcache

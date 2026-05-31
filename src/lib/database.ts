@@ -5,9 +5,11 @@ const initSqlJs: (config?: { locateFile: (filename: string) => string }) => Prom
   ((_initSqlJs as any).default ?? _initSqlJs) as any;
 import { hashPassword } from './db/authService';
 import { updateOverdueEMIs } from './db/emiService';
+import { getSystemWorkingDate } from './workingDate';
 
 let db: Database | null = null;
 let initError: string | null = null;
+let SQLInstance: SqlJsStatic | null = null;
 const DB_STORE_NAME = 'gold_loan_db';
 const DB_KEY = 'database';
 const DB_FILE_NAME = 'gold_loan_data.db';
@@ -201,7 +203,12 @@ function createSchema(database: Database): void {
       end_date TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
       emi_amount REAL NOT NULL,
-      created_by TEXT
+      created_by TEXT,
+      branch_id TEXT,
+      locker_number TEXT,
+      packet_number TEXT,
+      ornament_photo_url TEXT,
+      penalty_rate REAL NOT NULL DEFAULT 2
     );
 
     CREATE TABLE IF NOT EXISTS emis (
@@ -218,7 +225,8 @@ function createSchema(database: Database): void {
       payment_method TEXT,
       transaction_ref TEXT,
       payment_id TEXT,
-      created_by TEXT
+      created_by TEXT,
+      penalty_rate REAL NOT NULL DEFAULT 2
     );
 
     CREATE TABLE IF NOT EXISTS activity_logs (
@@ -253,6 +261,22 @@ function createSchema(database: Database): void {
       approved_by TEXT,
       approved_by_name TEXT,
       rejection_reason TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS payments (
+      id TEXT PRIMARY KEY,
+      loan_id TEXT NOT NULL,
+      payment_type TEXT NOT NULL,
+      amount REAL NOT NULL,
+      payment_date TEXT NOT NULL,
+      principal_component REAL NOT NULL,
+      interest_component REAL NOT NULL,
+      penalty_component REAL NOT NULL,
+      payment_method TEXT,
+      transaction_ref TEXT,
+      created_by TEXT,
+      created_at TEXT NOT NULL,
+      customer_name TEXT
     );
   `);
 
@@ -290,8 +314,46 @@ function createSchema(database: Database): void {
           if (table === 'loans' && !columns.includes('branch_id')) {
             database.run('ALTER TABLE loans ADD COLUMN branch_id TEXT');
           }
+          
+          // Add locker_number to loans if missing
+          if (table === 'loans' && !columns.includes('locker_number')) {
+            database.run('ALTER TABLE loans ADD COLUMN locker_number TEXT');
+          }
+
+          // Add packet_number to loans if missing
+          if (table === 'loans' && !columns.includes('packet_number')) {
+            database.run('ALTER TABLE loans ADD COLUMN packet_number TEXT');
+          }
+
+          // Add ornament_photo_url to loans if missing
+          if (table === 'loans' && !columns.includes('ornament_photo_url')) {
+            database.run('ALTER TABLE loans ADD COLUMN ornament_photo_url TEXT');
+          }
+
+          // Add repayment_scheme to loans if missing
+          if (table === 'loans' && !columns.includes('repayment_scheme')) {
+            database.run("ALTER TABLE loans ADD COLUMN repayment_scheme TEXT");
+            database.run("UPDATE loans SET repayment_scheme = 'EMI' WHERE repayment_scheme IS NULL");
+          }
         }
       });
+
+      // Add repayment_scheme to loan_types if missing
+      const ltInfo = database.exec("PRAGMA table_info('loan_types')");
+      if (ltInfo.length > 0) {
+        const columns = ltInfo[0].values.map(row => row[1] as string);
+        if (!columns.includes('repayment_scheme')) {
+          database.run("ALTER TABLE loan_types ADD COLUMN repayment_scheme TEXT");
+          database.run("UPDATE loan_types SET repayment_scheme = 'EMI' WHERE repayment_scheme IS NULL");
+        }
+      }
+
+      // Cleanup: Remove any EMIs that were accidentally generated for Bullet loans
+      try {
+        database.run("DELETE FROM emis WHERE loan_id IN (SELECT id FROM loans WHERE repayment_scheme = 'BULLET')");
+      } catch (e) {
+        // Ignore if table doesn't exist yet
+      }
 
       // Special case for existing emis table migration if not already handled
       const emiInfo = database.exec("PRAGMA table_info('emis')");
@@ -305,6 +367,21 @@ function createSchema(database: Database): void {
         }
         if (!columns.includes('payment_id')) {
           database.run("ALTER TABLE emis ADD COLUMN payment_id TEXT");
+        }
+      }
+
+      // Add customer_name to payments if missing
+      const paymentInfo = database.exec("PRAGMA table_info('payments')");
+      if (paymentInfo.length > 0) {
+        const paymentColumns = paymentInfo[0].values.map(row => row[1] as string);
+        if (!paymentColumns.includes('customer_name')) {
+          database.run("ALTER TABLE payments ADD COLUMN customer_name TEXT");
+          // Backfill existing payments with customer name from loans table
+          database.run(`
+            UPDATE payments 
+            SET customer_name = (SELECT customer_name FROM loans WHERE loans.id = payments.loan_id)
+            WHERE customer_name IS NULL
+          `);
         }
       }
     } catch (err) {
@@ -332,10 +409,21 @@ async function seedData(database: Database): Promise<void> {
   if (rateCount === 0) {
     database.run(`
       INSERT INTO gold_rates (id, gold_type, rate_per_gram, updated_at) VALUES
-        ('1', '24K', 6500, '2024-03-15'),
-        ('2', '22K', 5950, '2024-03-15'),
-        ('3', '18K', 4875, '2024-03-15');
+        ('1', '24K', 0, '2024-03-15'),
+        ('2', '22K', 0, '2024-03-15'),
+        ('3', '18K', 0, '2024-03-15');
     `);
+  } else {
+    // Data Migration: Reset default rates if they match the initial seed
+    try {
+      database.run(`
+        UPDATE gold_rates 
+        SET rate_per_gram = 0 
+        WHERE rate_per_gram IN (6500, 5950, 4875) AND updated_at = '2024-03-15'
+      `);
+    } catch (err) {
+      console.error('Failed to reset default gold rates:', err);
+    }
   }
 
   // Seed loan types
@@ -354,11 +442,54 @@ async function seedData(database: Database): Promise<void> {
   if (settingsCount === 0) {
     database.run(`
       INSERT INTO settings (key, value) VALUES
-        ('shop_name', 'Gold Loan Manager'),
-        ('shop_upi_id', 'goldloanshop@upi'),
-        ('shop_address', 'Gold Loan Shop, India'),
-        ('shop_phone', '+91-9999999999');
+        ('shop_name', ''),
+        ('shop_upi_id', ''),
+        ('shop_address', ''),
+        ('shop_phone', '');
     `);
+  }
+}
+
+// ─── Settings Migration ───────────────────────────────────────────────────────
+// Runs unconditionally on every startup to clear old hardcoded default values.
+function migrateSettings(database: Database): void {
+  try {
+    database.run(`
+      UPDATE settings 
+      SET value = '' 
+      WHERE (key = 'shop_name' AND value = 'Gold Loan Manager')
+         OR (key = 'shop_phone' AND value = '+91-9999999999')
+         OR (key = 'shop_address' AND value = 'Gold Loan Shop, India')
+         OR (key = 'shop_upi_id' AND value = 'goldloanshop@upi')
+    `);
+  } catch (err) {
+    console.error('Failed to reset default shop settings:', err);
+  }
+}
+
+// ─── Penalty Rates Migration ──────────────────────────────────────────────────
+// Ensures penalty_rate columns exist in the loans and emis tables for existing databases.
+function migratePenaltyRates(database: Database): void {
+  try {
+    database.exec("SELECT penalty_rate FROM loans LIMIT 1");
+  } catch (err) {
+    console.log("Migrating loans table to add penalty_rate column...");
+    try {
+      database.run("ALTER TABLE loans ADD COLUMN penalty_rate REAL NOT NULL DEFAULT 2");
+    } catch (alterErr) {
+      console.error("Failed to alter loans table:", alterErr);
+    }
+  }
+
+  try {
+    database.exec("SELECT penalty_rate FROM emis LIMIT 1");
+  } catch (err) {
+    console.log("Migrating emis table to add penalty_rate column...");
+    try {
+      database.run("ALTER TABLE emis ADD COLUMN penalty_rate REAL NOT NULL DEFAULT 2");
+    } catch (alterErr) {
+      console.error("Failed to alter emis table:", alterErr);
+    }
   }
 }
 
@@ -425,6 +556,7 @@ export async function initDatabase(): Promise<Database> {
     }
 
     const SQL = await initSqlJs(config);
+    SQLInstance = SQL;
 
   // 1. Try file-based load (Electron primary)
   let savedData = await loadFromFile();
@@ -446,6 +578,12 @@ export async function initDatabase(): Promise<Database> {
 
   // Ensure schema exists even on existing DBs (safe with IF NOT EXISTS)
   createSchema(db);
+
+  // Migrate old hardcoded default settings to empty strings (runs every startup)
+  migrateSettings(db);
+
+  // Migrate penalty rates (adds columns if missing)
+  migratePenaltyRates(db);
 
   // Migrate any plaintext passwords to SHA-256 hashes
   await migratePasswords(db);
@@ -503,5 +641,92 @@ export function resetApplicationData(): void {
   } catch (err) {
     console.error('Failed to reset application data:', err);
     throw err;
+  }
+}
+
+/**
+ * Exports the current SQLite database as a downloadable file
+ */
+export function exportDatabase(): void {
+  try {
+    const database = getDB();
+    const data = database.export();
+    let exportData = data;
+
+    if (SQLInstance) {
+      try {
+        // Create a temporary database copy from the main data to purge the users table
+        const tempDb = new SQLInstance.Database(data);
+        tempDb.run('DELETE FROM users');
+        exportData = tempDb.export();
+        tempDb.close();
+        console.log('Successfully purged users authentication details from database backup.');
+      } catch (purgeErr) {
+        console.error('Failed to purge users table from backup:', purgeErr);
+      }
+    }
+
+    const blob = new Blob([exportData as any], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gold_loan_backup_${getSystemWorkingDate()}.db`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error('Failed to export database:', err);
+    throw err;
+  }
+}
+
+/**
+ * Imports a SQLite database from a Uint8Array, replacing the current db.
+ * This will overwrite all existing data.
+ */
+export async function importDatabase(data: Uint8Array): Promise<void> {
+  try {
+    let config: any = {};
+    if (typeof window !== 'undefined' && (window as any).process && (window as any).require) {
+      try {
+        const fs = (window as any).require('fs');
+        const path = (window as any).require('path');
+        let baseDir = window.location.pathname.replace(/\/[^\/]+$/, '');
+        if (process.platform === 'win32' || baseDir.includes(':')) {
+          baseDir = baseDir.replace(/^\/([A-Z]:)/i, '$1').replace(/\//g, path.sep);
+          baseDir = decodeURIComponent(baseDir);
+        }
+        const wasmPath = path.join(baseDir, 'sql-wasm.wasm');
+        const wasmBinary = fs.readFileSync(wasmPath);
+        config = { wasmBinary };
+      } catch (e: any) {
+        config = { locateFile: (file: string) => file };
+      }
+    } else {
+      config = { locateFile: (file: string) => file };
+    }
+
+    const SQL = await initSqlJs(config);
+    const newDb = new SQL.Database(data);
+    
+    // Close the old db if it exists
+    if (db) {
+      try { db.close(); } catch (e) {}
+    }
+    
+    // Replace the global db instance
+    db = newDb;
+    
+    // Save to persistence
+    saveDB();
+    
+    // Run migrations just in case the imported DB is an older schema
+    createSchema(db);
+    
+    console.log('Database imported and saved successfully.');
+  } catch (err) {
+    console.error('Failed to import database:', err);
+    throw new Error('Invalid database file or format.');
   }
 }

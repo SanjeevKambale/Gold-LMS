@@ -5,6 +5,7 @@ import { EMI, User } from '../types';
 import { getSmartEMIs, payEMI as dbPayEMI, getRemainingLoanBalance, calculateEMIPenalty, getEMIsByLoan, rebalanceLoan, getEMIsByPaymentId, getAllEMIs, computeAmortization } from '../lib/db/emiService';
 import { getAllLoans } from '../lib/db/loanService';
 import { PayEMIModal } from './PayEMIModal';
+import { getSystemWorkingDate } from '../lib/workingDate';
 import { EMIQRModal } from './EMIQRModal';
 import { generateEMIReceipt } from '../lib/pdfReceipt';
 import { logActivity } from '../lib/activityLogger';
@@ -22,6 +23,8 @@ export function EMIManagement({ currentUser }: EMIManagementProps) {
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'paid' | 'overdue'>('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [selectedEMI, setSelectedEMI] = useState<EMI | null>(null);
   const [showPayModal, setShowPayModal] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
@@ -37,7 +40,9 @@ export function EMIManagement({ currentUser }: EMIManagementProps) {
     const matchesSearch = emi.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          emi.loanId.includes(searchTerm);
     const matchesFilter = filterStatus === 'all' || emi.status === filterStatus;
-    return matchesSearch && matchesFilter;
+    const matchesDateFrom = !dateFrom || emi.dueDate >= dateFrom;
+    const matchesDateTo = !dateTo || emi.dueDate <= dateTo;
+    return matchesSearch && matchesFilter && matchesDateFrom && matchesDateTo;
   });
 
   const getStatusIcon = (status: string) => {
@@ -80,9 +85,16 @@ export function EMIManagement({ currentUser }: EMIManagementProps) {
     }
   };
 
-  const handlePayEMI = (emiId: string, paidAmount: number, paymentMethod: string, transactionRef: string, penaltyAmount: number, adjustmentMode?: 'tenure' | 'emi') => {
+  const handlePayEMI = (
+    emiId: string,
+    paidAmount: number,
+    paymentMethod: string,
+    transactionRef: string,
+    penaltyAmount: number,
+    paidDate: string,
+    adjustmentMode?: 'tenure' | 'emi'
+  ) => {
     const emi = emis.find(e => e.id === emiId);
-    const paidDate = new Date().toISOString().split('T')[0];
     
     // 1. Record the payment
     dbPayEMI(emiId, paidAmount, paymentMethod, transactionRef, paidDate, penaltyAmount, !!adjustmentMode);
@@ -129,8 +141,7 @@ export function EMIManagement({ currentUser }: EMIManagementProps) {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold text-gray-900">EMI Management</h2>
-        <p className="text-gray-500 mt-1">Track and manage customer EMI payments</p>
+        <h2 className="text-2xl font-bold text-gray-900">EMI Tracking</h2>
       </div>
 
       {/* EMI Stats */}
@@ -198,18 +209,21 @@ export function EMIManagement({ currentUser }: EMIManagementProps) {
       </div>
 
       {/* Two Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 lg:items-stretch">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 lg:items-start">
         {/* Current Month's Pending EMIs */}
-        <div className="bg-white rounded-none border border-black/15 p-6 shadow-sm flex flex-col h-full hover:shadow-md transition-all duration-300">
+        <div 
+          style={{ alignSelf: 'start' }} 
+          className="bg-white rounded-none border border-black/15 p-6 shadow-sm flex flex-col w-full hover:shadow-md transition-all duration-300"
+        >
           <div className="flex items-center justify-between mb-4 flex-shrink-0">
             <h3 className="text-lg font-semibold text-gray-900">Current Month's EMIs</h3>
             <span className="text-[10px] font-bold text-yellow-600 bg-yellow-50 px-2 py-1 rounded-none border border-black/15 uppercase tracking-tighter">
-              {new Date().toLocaleString('default', { month: 'short' })}
+              {new Date(getSystemWorkingDate()).toLocaleString('default', { month: 'short' })}
             </span>
           </div>
           
           {(() => {
-            const now = new Date();
+            const now = new Date(getSystemWorkingDate());
             const currentMonth = now.getMonth();
             const currentYear = now.getFullYear();
             
@@ -221,7 +235,7 @@ export function EMIManagement({ currentUser }: EMIManagementProps) {
 
             if (currentMonthEmis.length === 0) {
               return (
-                <div className="flex-1 flex flex-col items-center justify-center py-6 px-4 text-center border-2 border-dashed border-black/15 rounded-none border border-black/15 bg-gray-50/50">
+                <div className="flex flex-col items-center justify-center py-6 px-4 text-center border border-dashed border-black/15 rounded-none bg-gray-50/50">
                   <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mb-3">
                     <Calendar className="w-6 h-6 text-blue-500" />
                   </div>
@@ -232,10 +246,10 @@ export function EMIManagement({ currentUser }: EMIManagementProps) {
             }
 
             return (
-              <div className="space-y-3 flex-1 overflow-y-auto pr-1">
+              <div className="space-y-3 overflow-y-auto pr-1">
                 {currentMonthEmis.map((emi) => {
                   const dueDate = new Date(emi.dueDate);
-                  const isOverdue = emi.status === 'overdue' || (emi.status === 'pending' && dueDate < new Date());
+                  const isOverdue = emi.status === 'overdue' || (emi.status === 'pending' && dueDate < new Date(getSystemWorkingDate()));
                   
                   return (
                     <div key={emi.id} className={`p-3 rounded-none border border-black/15 ${
@@ -249,7 +263,7 @@ export function EMIManagement({ currentUser }: EMIManagementProps) {
                             <p className="font-medium text-gray-900 text-sm">{emi.customerName}</p>
                             {emi.status === 'paid' && <CheckCircle className="w-3 h-3 text-green-500" />}
                           </div>
-                          <p className="text-xs text-gray-500 mt-0.5">EMI #{emi.emiNumber}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">EMI {emi.emiNumber}</p>
                           <div className="flex items-center gap-1.5 mt-1">
                             {emi.status === 'paid' ? (
                               <CheckCircle className="w-3 h-3 text-green-500" />
@@ -311,6 +325,41 @@ export function EMIManagement({ currentUser }: EMIManagementProps) {
                   </button>
                 ))}
               </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-black/5">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Due From</label>
+                  <input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-black/15 bg-white focus:outline-none focus:ring-1 focus:ring-yellow-500 rounded-none"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Due To</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="date"
+                      value={dateTo}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-black/15 bg-white focus:outline-none focus:ring-1 focus:ring-yellow-500 rounded-none"
+                    />
+                    {(dateFrom || dateTo) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDateFrom('');
+                          setDateTo('');
+                        }}
+                        className="px-3 py-2 text-xs font-bold bg-gray-100 hover:bg-gray-200 border border-black/15 text-gray-700 transition-all rounded-none whitespace-nowrap"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -321,7 +370,7 @@ export function EMIManagement({ currentUser }: EMIManagementProps) {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="text-left py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">Customer</th>
-                    <th className="text-left py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">EMI #</th>
+                    <th className="text-left py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">EMI</th>
                     <th className="text-center py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">Collected / Total</th>
                     <th className="text-center py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">Remaining</th>
                     <th className="text-center py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">Penalty</th>
@@ -335,7 +384,12 @@ export function EMIManagement({ currentUser }: EMIManagementProps) {
                       <td className="py-4 px-6">
                         <div>
                           <p className="text-sm font-bold text-gray-900">{emi.customerName}</p>
-                          <p className="text-xs text-gray-500 font-mono">Loan #{emi.loanId}</p>
+                          <p className="text-xs text-gray-500 font-mono">Loan {emi.loanId}</p>
+                          {emi.status === 'paid' && (
+                            <p className="text-[10px] text-green-600 font-semibold font-mono mt-0.5">
+                              Receipt: REC-EMI-{emi.paymentId ? emi.paymentId.replace('pay_', '').toUpperCase() : `${emi.loanId.slice(-6)}-${emi.emiNumber}`}
+                            </p>
+                          )}
                         </div>
                       </td>
                       <td className="py-4 px-6">
@@ -431,6 +485,8 @@ export function EMIManagement({ currentUser }: EMIManagementProps) {
                                   remainingBalance: getRemainingLoanBalance(emi.loanId),
                                   totalEMIs: allEmisForLoan.length,
                                   paidEMIsCount: allEmisForLoan.filter(e => e.status === 'paid').length,
+                                  paymentId: emi.paymentId,
+                                  penaltyRate: emi.penaltyRate,
                                 });
                               }}
                               className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-none border border-black/15 transition-all active:scale-95"
@@ -475,7 +531,7 @@ export function EMIManagement({ currentUser }: EMIManagementProps) {
                     {/* EMI Details */}
                     <div className="flex items-center flex-shrink-0 border-x border-black/15 px-12 whitespace-nowrap mr-16 md:mr-24">
                       <div className="text-center min-w-[80px] mr-16">
-                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">EMI #</p>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">EMI</p>
                         <p className="text-base font-black text-gray-900">{emi.emiNumber}</p>
                       </div>
                       <div className="text-center min-w-[120px]">
@@ -540,6 +596,8 @@ export function EMIManagement({ currentUser }: EMIManagementProps) {
                               remainingBalance: getRemainingLoanBalance(emi.loanId),
                               totalEMIs: allEmisForLoan.length,
                               paidEMIsCount: allEmisForLoan.filter(e => e.status === 'paid').length,
+                              paymentId: emi.paymentId,
+                              penaltyRate: emi.penaltyRate,
                             });
                           }}
                           className="px-5 py-2.5 bg-blue-50 text-blue-600 font-black text-[10px] uppercase tracking-widest rounded-none border border-black/15 hover:bg-blue-100 transition-colors border border-black/15"

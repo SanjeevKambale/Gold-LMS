@@ -56,8 +56,7 @@ export function GoldRateManagement({ currentUser }: GoldRateManagementProps) {
     <div className="space-y-4 md:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl md:text-2xl font-semibold text-gray-900">Gold Rate Management</h2>
-          <p className="text-sm md:text-base text-gray-500 mt-1">Manage and update current gold rates</p>
+          <h2 className="text-xl md:text-2xl font-semibold text-gray-900">Gold Rate Settings</h2>
         </div>
       </div>
 

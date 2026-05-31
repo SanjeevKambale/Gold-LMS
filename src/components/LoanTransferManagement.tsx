@@ -76,8 +76,7 @@ export function LoanTransferManagement({ currentUser }: LoanTransferManagementPr
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Loan Transfer Management</h2>
-          <p className="text-gray-500 mt-1">Monitor and approve ownership transfer requests</p>
+          <h2 className="text-2xl font-bold text-gray-900">Loan Transfers</h2>
         </div>
         {currentUser.role === 'admin' && transfers.length > 0 && (
           <button
@@ -152,7 +151,7 @@ export function LoanTransferManagement({ currentUser }: LoanTransferManagementPr
             <tbody className="divide-y divide-gray-50">
               {filteredTransfers.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-20 text-center">
+                  <td colSpan={6} className="text-center" style={{ padding: '5rem 0' }}>
                     <div className="flex flex-col items-center gap-3 text-gray-400">
                       <Send className="w-12 h-12 opacity-10" />
                       <p className="text-sm font-medium">No transfer requests found</p>

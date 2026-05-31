@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Search, Eye, FileText, Trash2, AlertTriangle, X, CreditCard, TrendingDown, Send, TrendingUp, Clock, Scale, Download, Calendar, CheckCircle, XCircle, History } from 'lucide-react';
+import { Plus, Search, Eye, FileText, Trash2, AlertTriangle, X, CreditCard, TrendingDown, Send, TrendingUp, Clock, Scale, Download, Calendar, CheckCircle, XCircle, History, Camera } from 'lucide-react';
 import { Loan, EMI, User, LoanTransfer } from '../types';
 import { getAllLoans, addLoan as dbAddLoan, deleteLoan as dbDeleteLoan } from '../lib/db/loanService';
 import { addEMIs } from '../lib/db/emiService';
@@ -8,8 +8,27 @@ import { CreateLoanModal } from './CreateLoanModal';
 import { EarlyClosureModal } from './EarlyClosureModal';
 import { LoanTransferModal } from './LoanTransferModal';
 import { ConfirmationModal } from './ConfirmationModal';
+import { BulletLoanLedger } from './BulletLoanLedger';
 import { generateLoanReceipt } from '../lib/pdfReceipt';
 import { logActivity } from '../lib/activityLogger';
+
+function parseOrnamentPhotos(photoUrlStr?: string): { url: string; name: string }[] {
+  if (!photoUrlStr) return [];
+  if (photoUrlStr.startsWith('[') && photoUrlStr.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(photoUrlStr);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item: any) => {
+          if (typeof item === 'string') {
+            return { url: item, name: item.split(/[/\\]/).pop() || 'Ornament Photo' };
+          }
+          return { url: item.url || '', name: item.name || 'Ornament Photo' };
+        });
+      }
+    } catch (e) {}
+  }
+  return [{ url: photoUrlStr, name: photoUrlStr.split(/[/\\]/).pop() || 'Ornament Photo' }];
+}
 
 interface LoanManagementProps {
   currentUser: User;
@@ -31,6 +50,8 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
   const [earlyClosureLoan, setEarlyClosureLoan] = useState<Loan | null>(null);
   const [transferLoan, setTransferLoan] = useState<Loan | null>(null);
+  const [showOrnamentImage, setShowOrnamentImage] = useState<string | null>(null);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
 
 
 
@@ -106,23 +127,26 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
     const loanWithCreator = { ...loan, createdBy: currentUser.id };
     dbAddLoan(loanWithCreator);
 
-    // Auto-generate EMI records for this loan
-    const emis: EMI[] = Array.from({ length: loan.tenure }, (_, i) => {
-      const dueDate = new Date(loan.startDate);
-      dueDate.setMonth(dueDate.getMonth() + i + 1);
-      return {
-        id: `${loan.id}_emi_${i + 1}`,
-        loanId: loan.id,
-        customerId: loan.customerId,
-        customerName: loan.customerName,
-        emiNumber: i + 1,
-        dueDate: dueDate.toISOString().split('T')[0],
-        amount: loan.emiAmount,
-        status: 'pending',
-        createdBy: currentUser.id,
-      };
-    });
-    addEMIs(emis);
+    // Auto-generate EMI records for this loan if it's an EMI scheme
+    if (loan.repaymentScheme !== 'BULLET') {
+      const emis: EMI[] = Array.from({ length: loan.tenure }, (_, i) => {
+        const dueDate = new Date(loan.startDate);
+        dueDate.setMonth(dueDate.getMonth() + i + 1);
+        return {
+          id: `${loan.id}_emi_${i + 1}`,
+          loanId: loan.id,
+          customerId: loan.customerId,
+          customerName: loan.customerName,
+          emiNumber: i + 1,
+          dueDate: dueDate.toISOString().split('T')[0],
+          amount: loan.emiAmount,
+          status: 'pending',
+          createdBy: currentUser.id,
+          penaltyRate: loan.penaltyRate,
+        };
+      });
+      addEMIs(emis);
+    }
 
     refreshLoans();
     setShowCreateModal(false);
@@ -249,7 +273,8 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
               {filteredLoans.map((loan) => (
                 <tr key={loan.id} className="hover:bg-gray-50/50 transition-colors">
                   <td className="py-4 px-6">
-                    <p className="font-bold text-sm text-gray-900 font-mono">#{loan.id.slice(-6)}</p>
+                    <p className="font-bold text-sm text-gray-900 font-mono">{loan.id.slice(-6)}</p>
+                    <p className="text-[10px] text-gray-400 font-mono">REC-LN-{loan.id}</p>
                   </td>
                   <td className="py-4 px-6">
                     <p className="text-sm font-semibold text-gray-900">{loan.customerName}</p>
@@ -269,7 +294,11 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
                     </div>
                   </td>
                   <td className="py-4 px-6">
-                    <p className="text-sm font-bold text-yellow-600">₹{loan.emiAmount.toLocaleString()}</p>
+                    {loan.repaymentScheme === 'BULLET' ? (
+                      <p className="text-sm font-bold text-yellow-700 bg-yellow-50 px-2 py-1 inline-block border border-yellow-200">Bullet</p>
+                    ) : (
+                      <p className="text-sm font-bold text-yellow-600">₹{loan.emiAmount.toLocaleString()}</p>
+                    )}
                   </td>
                   <td className="py-4 px-6">
                     <div>
@@ -390,8 +419,8 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
       {/* Loan Details Modal */}
       {selectedLoan && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-none border border-black/15 w-full max-w-2xl shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-black/15 bg-gray-50/50">
+          <div className={`w-full max-w-2xl relative overflow-hidden flex flex-col max-h-[90vh] ${isPaymentModalOpen ? 'bg-transparent shadow-none border-none' : 'bg-white rounded-none border border-black/15 shadow-2xl'}`}>
+            <div className={`flex items-center justify-between px-6 py-4 border-b border-black/15 bg-gray-50/50 ${isPaymentModalOpen ? 'hidden' : 'flex'}`}>
               <div>
                 <h3 className="text-lg md:text-xl font-bold text-gray-900">Loan Details</h3>
                 <p className="text-xs text-gray-500 mt-0.5">#{selectedLoan.id}</p>
@@ -406,7 +435,7 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
 
             <div className="p-6 overflow-y-auto flex-1 space-y-6">
               {/* Header Status */}
-              <div className="flex items-center justify-between bg-yellow-50 p-4 rounded-none border border-black/15">
+              <div className={`items-center justify-between bg-yellow-50 p-4 rounded-none border border-black/15 ${isPaymentModalOpen ? 'hidden' : 'flex'}`}>
                 <div>
                   <p className="text-xs text-yellow-800 font-medium">Customer</p>
                   <p className="text-base font-bold text-yellow-900">{selectedLoan.customerName}</p>
@@ -420,13 +449,17 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
               </div>
 
               {/* Grid Details */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className={`grid-cols-1 md:grid-cols-2 gap-6 ${isPaymentModalOpen ? 'hidden' : 'grid'}`}>
                 <div>
                   <h4 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
                     <FileText className="w-4 h-4 text-gray-400" />
                     Loan Information
                   </h4>
                   <div className="space-y-3 bg-gray-50 p-4 rounded-none border border-black/15">
+                    <div>
+                      <p className="text-xs text-gray-500">Receipt No.</p>
+                      <p className="text-sm font-bold text-yellow-700 font-mono">REC-LN-{selectedLoan.id}</p>
+                    </div>
                     <div>
                       <p className="text-xs text-gray-500">Loan Type</p>
                       <p className="text-sm font-medium text-gray-900">{selectedLoan.loanTypeName}</p>
@@ -435,10 +468,14 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
                       <p className="text-xs text-gray-500">Principal Amount</p>
                       <p className="text-base font-bold text-gray-900">₹{selectedLoan.loanAmount.toLocaleString()}</p>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       <div>
                         <p className="text-xs text-gray-500">Interest Rate</p>
                         <p className="text-sm font-medium text-gray-900">{selectedLoan.interestRate}% p.a.</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Penalty Rate</p>
+                        <p className="text-sm font-medium text-gray-900">{selectedLoan.penaltyRate ?? 2}%/mo</p>
                       </div>
                       <div>
                         <p className="text-xs text-gray-500">Tenure</p>
@@ -480,22 +517,75 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
                       <p className="text-xs text-gray-500">Assessed Gold Value</p>
                       <p className="text-base font-bold text-gray-900">₹{selectedLoan.goldValue.toLocaleString()}</p>
                     </div>
+                    {(selectedLoan.lockerNumber || selectedLoan.packetNumber) && (
+                      <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-black/10">
+                        {selectedLoan.lockerNumber && (
+                          <div>
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wider">Locker No</p>
+                            <p className="text-sm font-bold text-gray-900">{selectedLoan.lockerNumber}</p>
+                          </div>
+                        )}
+                        {selectedLoan.packetNumber && (
+                          <div>
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wider">Packet No</p>
+                            <p className="text-sm font-bold text-gray-900">{selectedLoan.packetNumber}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {selectedLoan.ornamentPhotoUrl && (
+                      <div className="pt-3 space-y-2">
+                        <p className="text-[10px] text-gray-500 uppercase tracking-wider">Ornament Photos</p>
+                        <div className="flex flex-col gap-2">
+                          {parseOrnamentPhotos(selectedLoan.ornamentPhotoUrl).map((photo, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => setShowOrnamentImage(photo.url)}
+                              className="w-full flex items-center justify-center gap-2 bg-blue-50 hover:bg-blue-100 text-blue-700 py-2 border border-blue-200 rounded-none transition-colors text-sm font-semibold"
+                            >
+                              <Camera className="w-4 h-4" />
+                              <span>View Photo {i + 1} ({photo.name})</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <h4 className="text-sm font-bold text-gray-900 mb-3 mt-6 flex items-center gap-2">
                     <CreditCard className="w-4 h-4 text-gray-400" />
                     Repayment Info
                   </h4>
-                  <div className="bg-blue-50 p-4 rounded-none border border-black/15">
-                    <p className="text-xs text-blue-800">Fixed Monthly EMI</p>
-                    <p className="text-xl font-bold text-blue-900">₹{selectedLoan.emiAmount.toLocaleString()}</p>
-                  </div>
+                  {selectedLoan.repaymentScheme === 'BULLET' ? (
+                    <div className="bg-yellow-50 p-4 rounded-none border border-black/15">
+                      <p className="text-xs text-yellow-800">Dynamic Bullet Loan</p>
+                      <p className="text-xl font-bold text-yellow-900">Simple Interest Accrual</p>
+                    </div>
+                  ) : (
+                    <div className="bg-blue-50 p-4 rounded-none border border-black/15">
+                      <p className="text-xs text-blue-800">Fixed Monthly EMI</p>
+                      <p className="text-xl font-bold text-blue-900">₹{selectedLoan.emiAmount.toLocaleString()}</p>
+                    </div>
+                  )}
                 </div>
               </div>
 
+              {/* Bullet Loan Ledger integration */}
+              {selectedLoan.repaymentScheme === 'BULLET' && (
+                <BulletLoanLedger 
+                  loan={selectedLoan} 
+                  currentUser={currentUser} 
+                  onRefresh={() => {
+                    refreshLoans();
+                  }}
+                  onModalStateChange={setIsPaymentModalOpen}
+                />
+              )}
+
               {/* Ownership History */}
               {selectedLoanHistory.length > 0 && (
-                <div className="mt-8 pt-6 border-t border-black/15">
+                <div className={`mt-8 pt-6 border-t border-black/15 ${isPaymentModalOpen ? 'hidden' : 'block'}`}>
                   <h4 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
                     <History className="w-4 h-4 text-gray-400" />
                     Ownership & Transfer History
@@ -535,13 +625,13 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
 
             </div>
 
-            <div className="px-6 py-4 border-t border-black/15 bg-gray-50/50 flex items-center justify-between gap-3">
+            <div className={`px-6 py-4 border-t border-black/15 bg-gray-50/50 items-center justify-between gap-3 ${isPaymentModalOpen ? 'hidden' : 'flex'}`}>
               {selectedLoan.status === 'active' && (
                 <button
                   onClick={() => {
                     setEarlyClosureLoan(selectedLoan);
                   }}
-                  className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-none border border-black/15 text-sm font-semibold transition-colors shadow-sm shadow-amber-200"
+                  className="flex items-center gap-2 px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-none border border-black/15 text-sm font-semibold transition-colors shadow-sm"
                 >
                   <TrendingDown className="w-4 h-4" />
                   Early Closure
@@ -549,7 +639,7 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
               )}
               <button
                 onClick={() => setSelectedLoan(null)}
-                className="ml-auto px-6 py-2 bg-gray-900 text-white rounded-none border border-black/15 hover:bg-gray-800 transition-colors text-sm font-medium"
+                className="ml-auto px-6 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-none border border-black/15 transition-colors text-sm font-medium"
               >
                 Close Details
               </button>
@@ -576,6 +666,27 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
         />
       )}
 
+      {/* Ornament Image Viewer Modal */}
+      {showOrnamentImage && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4" onClick={() => setShowOrnamentImage(null)}>
+          <div className="relative max-w-4xl w-full flex flex-col items-center justify-center" onClick={(e) => e.stopPropagation()}>
+            <div className="w-full flex justify-end mb-2">
+              <button
+                onClick={() => setShowOrnamentImage(null)}
+                className="p-2 text-white hover:text-gray-300 transition-colors bg-black bg-opacity-60 rounded-full"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <img 
+              src={showOrnamentImage} 
+              alt="Gold Ornament" 
+              className="w-full h-auto object-contain border-4 border-white shadow-2xl bg-white"
+              style={{ maxHeight: '85vh' }}
+            />
+          </div>
+        </div>
+      )}
 
     </div>
   );

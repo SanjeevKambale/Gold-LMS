@@ -54,7 +54,7 @@ export function ConfirmationModal({
   const colors = getColorClasses();
 
   return (
-    <div className="fixed inset-0 bg-black flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[9999] p-4 animate-in fade-in duration-200">
       <div 
         className="bg-white rounded-none border border-black/15 max-w-sm w-full shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-black/15"
         onClick={(e) => e.stopPropagation()}

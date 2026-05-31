@@ -40,6 +40,7 @@ export interface LoanType {
   maxAmount: number;
   minTenure: number;
   maxTenure: number;
+  repaymentScheme?: 'EMI' | 'BULLET';
 }
 
 export interface Loan {
@@ -64,6 +65,8 @@ export interface Loan {
   lockerNumber?: string;
   packetNumber?: string;
   ornamentPhotoUrl?: string;
+  repaymentScheme?: 'EMI' | 'BULLET';
+  penaltyRate?: number;
 }
 
 export interface LoanTransfer {
@@ -99,6 +102,23 @@ export interface EMI {
   transactionRef?: string;
   paymentId?: string;
   createdBy?: string;
+  penaltyRate?: number;
+}
+
+export interface Payment {
+  id: string;
+  loanId: string;
+  paymentType: 'INTEREST' | 'PARTIAL' | 'FULL_CLOSURE' | 'RENEWAL' | 'PENALTY';
+  amount: number;
+  paymentDate: string;
+  principalComponent: number;
+  interestComponent: number;
+  penaltyComponent: number;
+  paymentMethod?: string;
+  transactionRef?: string;
+  createdBy?: string;
+  createdAt: string;
+  customerName?: string;
 }
 
 export interface User {
@@ -124,6 +144,7 @@ export type ActivityType =
   | 'loan_transfer_rejected'
   | 'loan_transfer_cleared'
   | 'emi_paid'
+  | 'bullet_payment_made'
   | 'kyc_verified'
   | 'kyc_rejected'
   | 'gold_rate_updated'

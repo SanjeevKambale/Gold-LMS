@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Save, Trash2, Building2, Phone, MapPin, CreditCard, AlertTriangle, Users, UserX, RefreshCw } from 'lucide-react';
-import { resetApplicationData } from '../lib/database';
+import { Settings as SettingsIcon, Save, Trash2, Building2, Phone, MapPin, CreditCard, AlertTriangle, Users, UserX, RefreshCw, Database, Upload } from 'lucide-react';
+import { resetApplicationData, exportDatabase, importDatabase } from '../lib/database';
 import { User } from '../types';
 import { getAllSettings, updateSettings, AppSettings } from '../lib/db/settingsService';
 import { logActivity } from '../lib/activityLogger';
@@ -25,6 +25,8 @@ export function Settings({ currentUser, onLogout }: SettingsProps) {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showCreateStaffModal, setShowCreateStaffModal] = useState(false);
   const [staffToDelete, setStaffToDelete] = useState<User | null>(null);
+  const [showImportConfirm, setShowImportConfirm] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
   const [users, setUsers] = useState<User[]>([]);
 
   const refreshUsers = () => {
@@ -86,14 +88,56 @@ export function Settings({ currentUser, onLogout }: SettingsProps) {
   const handleResetData = () => {
     try {
       resetApplicationData();
-      logActivity(currentUser, 'settings_updated', 'Admin performed a full system data reset');
-      setSaveMessage({ type: 'success', text: 'All application data has been cleared.' });
-      setShowResetConfirm(false);
-      clearUserFromStorage();
-      // Optional: reload page to refresh all context
-      setTimeout(() => window.location.reload(), 1500);
+      logActivity(currentUser, 'settings_updated', 'Application Data Reset', 'Factory reset performed by admin');
+      onLogout(); // Force logout after reset
     } catch (err) {
-      setSaveMessage({ type: 'error', text: 'Failed to reset data.' });
+      setSaveMessage({ type: 'error', text: 'Failed to reset application data.' });
+    }
+  };
+
+  const handleBackupData = () => {
+    try {
+      exportDatabase();
+      setSaveMessage({ type: 'success', text: 'Data backup downloaded successfully!' });
+      setTimeout(() => setSaveMessage(null), 3000);
+      logActivity(currentUser, 'settings_updated', 'Exported database backup', 'Manual data backup initiated');
+    } catch (err) {
+      setSaveMessage({ type: 'error', text: 'Failed to backup data. Please try again.' });
+      setTimeout(() => setSaveMessage(null), 3000);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setImportFile(e.target.files[0]);
+      setShowImportConfirm(true);
+      // Reset input value so the same file can be selected again if needed
+      e.target.value = '';
+    }
+  };
+
+  const handleImportData = async () => {
+    if (!importFile) return;
+    try {
+      const arrayBuffer = await importFile.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      await importDatabase(uint8Array);
+      
+      logActivity(currentUser, 'settings_updated', 'Database Restore', 'Database restored from backup file');
+      
+      setSaveMessage({ type: 'success', text: 'Database restored successfully! Logging out...' });
+      setShowImportConfirm(false);
+      setImportFile(null);
+      
+      // Give it a moment to save, then log out
+      setTimeout(() => {
+        onLogout();
+      }, 1500);
+      
+    } catch (err) {
+      setSaveMessage({ type: 'error', text: 'Failed to restore database. Invalid file.' });
+      setShowImportConfirm(false);
+      setImportFile(null);
     }
   };
 
@@ -109,7 +153,6 @@ export function Settings({ currentUser, onLogout }: SettingsProps) {
         </div>
         <div>
           <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Application Settings</h2>
-          <p className="text-sm md:text-base text-gray-500">Manage your business profile and app configurations</p>
         </div>
       </div>
 
@@ -220,7 +263,7 @@ export function Settings({ currentUser, onLogout }: SettingsProps) {
 
         {/* Account & User Management */}
         <div className="bg-white rounded-none border border-black/15 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-all duration-300">
-          <div className="px-6 py-4 border-b border-black/15 bg-gray-50/50 flex-shrink-0">
+          <div className="px-6 py-4 border-b border-black/15 bg-gray-50/50 flex-shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <h3 className="flex items-center gap-2 font-bold text-gray-900">
               <Users className="w-4 h-4 text-blue-600" />
               Account & User Management
@@ -270,6 +313,40 @@ export function Settings({ currentUser, onLogout }: SettingsProps) {
                 )}
               </div>
             </div>
+
+            {/* Data Management (Admin Only) */}
+            {currentUser.role === 'admin' && (
+              <div className="pt-6 border-t border-black/15 mt-4">
+                <h4 className="flex items-center gap-2 text-sm font-bold text-gray-900 mb-2">
+                  <Database className="w-4 h-4 text-blue-600" />
+                  Data Management
+                </h4>
+                <p className="text-[10px] md:text-xs text-gray-500 mb-4 leading-relaxed">
+                  Download a complete backup of the application database, or restore an existing backup. Restoring a backup will overwrite all current data.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <Button
+                    onClick={handleBackupData}
+                    className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-3 h-auto text-sm font-bold rounded-none border border-black/15 shadow-sm hover:shadow-md transition-all"
+                  >
+                    <Database className="w-4 h-4" />
+                    Download Backup
+                  </Button>
+                  <label className="flex-1 block cursor-pointer">
+                    <input 
+                      type="file" 
+                      accept=".db" 
+                      onChange={handleFileChange}
+                      className="hidden"
+                    />
+                    <div className="w-full flex items-center justify-center gap-2 bg-white hover:bg-gray-50 text-gray-900 py-3 h-auto text-sm font-bold rounded-none border border-black/15 shadow-sm hover:shadow-md transition-all">
+                      <Upload className="w-4 h-4" />
+                      Restore Backup
+                    </div>
+                  </label>
+                </div>
+              </div>
+            )}
 
             {/* Danger Zone */}
             <div className="pt-6 border-t border-black/15 mt-auto">
@@ -348,6 +425,19 @@ export function Settings({ currentUser, onLogout }: SettingsProps) {
         title="Reset Application Data"
         message="DANGER: This will permanently delete all customers, loans, EMI history, user accounts, and shop settings. The application will be reset to factory defaults. This action cannot be undone."
         confirmText="Yes, Reset Factory Defaults"
+        type="danger"
+      />
+
+      <ConfirmationModal
+        isOpen={showImportConfirm}
+        onClose={() => {
+          setShowImportConfirm(false);
+          setImportFile(null);
+        }}
+        onConfirm={handleImportData}
+        title="Restore Database Backup"
+        message={`DANGER: You are about to overwrite ALL current application data with the contents of "${importFile?.name}". This action cannot be undone. You will be logged out automatically after the restore.`}
+        confirmText="Yes, Overwrite Data"
         type="danger"
       />
 

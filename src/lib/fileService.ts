@@ -79,3 +79,36 @@ export function openLocalFile(filePath: string): void {
     }
   }
 }
+
+export async function savePdfToCustomerFolder(pdfBuffer: ArrayBuffer, filename: string, customerName: string): Promise<string | null> {
+  const isElectron = typeof window !== 'undefined' && 
+                    window.process && 
+                    (window.process as any).type === 'renderer' &&
+                    (window as any).require;
+
+  if (isElectron) {
+    try {
+      const fs = (window as any).require('fs');
+      const path = (window as any).require('path');
+      const electron = (window as any).require('electron');
+      
+      if (electron && electron.ipcRenderer) {
+        const userDataPath = await electron.ipcRenderer.invoke('get-user-data-path');
+        const uploadsDir = path.join(userDataPath, 'uploads', customerName.replace(/[^a-z0-9]/gi, '_').toLowerCase());
+
+        if (!fs.existsSync(uploadsDir)) {
+          fs.mkdirSync(uploadsDir, { recursive: true });
+        }
+
+        const filePath = path.join(uploadsDir, filename);
+        const buffer = Buffer.from(pdfBuffer);
+        fs.writeFileSync(filePath, buffer);
+        console.log('PDF receipt archived in customer folder:', filePath);
+        return filePath;
+      }
+    } catch (err) {
+      console.error('Failed to save PDF to customer folder:', err);
+    }
+  }
+  return null;
+}

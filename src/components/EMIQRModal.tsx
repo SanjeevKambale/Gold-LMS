@@ -3,7 +3,7 @@ import { X, Download, QrCode, Share2, Info } from 'lucide-react';
 import { EMI } from '../types';
 import { getAllSettings } from '../lib/db/settingsService';
 
-// @ts-ignore - qrcode types not installed
+// @ts-expect-error - qrcode types not installed
 import QRCode from 'qrcode';
 
 interface EMIQRModalProps {

@@ -7,13 +7,13 @@ import { Alert, AlertDescription } from './ui/alert';
 import { authenticateUser } from '../lib/auth';
 import { User } from '../types';
 
-interface AdminVerificationModalProps {
-  currentUser: User;
+interface StaffVerificationModalProps {
+  staffUser: User;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export function AdminVerificationModal({ currentUser, onClose, onSuccess }: AdminVerificationModalProps) {
+export function StaffVerificationModal({ staffUser, onClose, onSuccess }: StaffVerificationModalProps) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -24,8 +24,8 @@ export function AdminVerificationModal({ currentUser, onClose, onSuccess }: Admi
     setIsLoading(true);
 
     try {
-      const verifiedUser = await authenticateUser(currentUser.username, password);
-      if (verifiedUser && verifiedUser.role === 'admin') {
+      const verifiedUser = await authenticateUser(staffUser.username, password);
+      if (verifiedUser && verifiedUser.id === staffUser.id) {
         onSuccess();
       } else {
         setError('Incorrect password');
@@ -43,7 +43,7 @@ export function AdminVerificationModal({ currentUser, onClose, onSuccess }: Admi
         <div className="flex items-center justify-between p-6 border-b border-black/15 bg-gray-50/50">
           <div className="flex items-center gap-2">
             <Lock className="w-5 h-5 text-yellow-600" />
-            <h2 className="text-xl font-bold text-gray-900">Admin Verification</h2>
+            <h2 className="text-xl font-bold text-gray-900">Staff Verification</h2>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700 transition-colors">
             <X className="w-5 h-5" />
@@ -51,8 +51,8 @@ export function AdminVerificationModal({ currentUser, onClose, onSuccess }: Admi
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <p className="text-sm text-gray-600">
-            Please enter your password to switch back to the Admin Dashboard.
+          <p className="text-sm text-gray-600 font-medium">
+            Please enter the password for <span className="font-bold text-gray-900">{staffUser.name}</span> to switch to their Staff Dashboard.
           </p>
 
           {error && (
@@ -64,17 +64,17 @@ export function AdminVerificationModal({ currentUser, onClose, onSuccess }: Admi
 
           <div className="flex flex-col">
             <Label 
-              htmlFor="admin-password"
+              htmlFor="staff-password"
               style={{ display: 'block', marginBottom: '8px' }}
             >
               Password
             </Label>
             <Input
-              id="admin-password"
+              id="staff-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter admin password"
+              placeholder="Enter staff password"
               required
               className="rounded-none border-black/15 focus:ring-yellow-500"
               autoFocus

@@ -139,7 +139,6 @@ export function CustomerManagement({ currentUser }: CustomerManagementProps) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 md:gap-0">
         <div>
           <h2 className="text-xl md:text-2xl font-semibold text-gray-900">Customer Management</h2>
-          <p className="text-sm md:text-base text-gray-500 mt-1">Manage customer information and KYC verification</p>
         </div>
         <button
           onClick={() => setShowAddModal(true)}

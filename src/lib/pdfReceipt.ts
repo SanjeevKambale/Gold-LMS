@@ -2,6 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Loan } from '../types';
 import { getAllSettings } from './db/settingsService';
+import { savePdfToCustomerFolder } from './fileService';
 
 export function generateLoanReceipt(loan: Loan): void {
   const doc = new jsPDF();
@@ -36,16 +37,18 @@ export function generateLoanReceipt(loan: Loan): void {
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(80, 80, 80);
-  doc.text(`Loan ID: #${loan.id}`, 14, 52);
+  doc.text(`Receipt No: REC-LN-${loan.id}`, 14, 52);
+  doc.text(`Loan ID: ${loan.id}`, 14, 57);
   doc.text(`Date: ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}`, 196, 52, { align: 'right' });
 
   // ─── Customer & Loan info table ───────────────────────────────────────────
   autoTable(doc, {
-    startY: 58,
+    startY: 62,
     head: [['CUSTOMER & LOAN DETAILS', '']],
     body: [
+      ['Receipt No.', `REC-LN-${loan.id}`],
       ['Customer Name', loan.customerName],
-      ['Loan ID', `#${loan.id}`],
+      ['Loan ID', loan.id],
       ['Loan Type', loan.loanTypeName],
       ['Gold Weight', `${loan.goldWeight} grams`],
       ['Gold Type / Purity', loan.goldType],
@@ -90,6 +93,10 @@ export function generateLoanReceipt(loan: Loan): void {
   doc.text('This is a system-generated receipt. No signature required.', 105, 292, { align: 'center' });
 
   doc.save(`Loan-Receipt-${loan.id}.pdf`);
+
+  // Save a copy inside customer folder in Electron
+  const pdfBuffer = doc.output('arraybuffer');
+  savePdfToCustomerFolder(pdfBuffer, `Loan-Receipt-${loan.id}.pdf`, loan.customerName).catch(console.error);
 }
 
 export function generateEMIReceipt(params: {
@@ -108,15 +115,20 @@ export function generateEMIReceipt(params: {
   paidEMIsCount?: number;     // how many EMIs have been fully paid (including this one)
   totalPaidAmount?: number;   // total amount in this transaction (for overpayments)
   coveredEMIs?: number[];     // list of EMI numbers covered by this payment
+  paymentId?: string;         // payment ID to generate the unique receipt number
+  penaltyRate?: number;       // penalty rate configured for this loan
 }): void {
   const doc = new jsPDF();
   
   const penalty = params.penaltyAmount || 0;
+  const ratePercentage = params.penaltyRate !== undefined && params.penaltyRate !== null ? params.penaltyRate : 2;
 
   const settings = getAllSettings();
   const shop_name = settings.shop_name || 'Gold Loan Manager';
   const shop_address = settings.shop_address || 'Shop Address';
   const shop_phone = settings.shop_phone || 'Contact Number';
+
+  const receiptNo = `REC-EMI-${params.paymentId ? params.paymentId.replace('pay_', '').toUpperCase() : `${params.loanId.slice(-6)}-${params.emiNumber}`}`;
 
   // ─── Header ───────────────────────────────────────────────────────────────
   doc.setFillColor(34, 197, 94); // green-500
@@ -148,22 +160,24 @@ export function generateEMIReceipt(params: {
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(80, 80, 80);
-  doc.text(`Receipt Date: ${new Date(params.paidDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}`, 14, 52);
+  doc.text(`Receipt No: ${receiptNo}`, 14, 52);
+  doc.text(`Receipt Date: ${new Date(params.paidDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}`, 196, 52, { align: 'right' });
 
   // ─── Payment details table ────────────────────────────────────────────────
   autoTable(doc, {
     startY: 72,
     head: [['EMI PAYMENT DETAILS', '']],
     body: [
+      ['Receipt No.', receiptNo],
       ['Customer Name', params.customerName],
-      ['Loan ID', `#${params.loanId}`],
-      ['EMI Number', `#${params.emiNumber}`],
+      ['Loan ID', params.loanId],
+      ['EMI Number', `${params.emiNumber}`],
       ['EMI Due Date', new Date(params.dueDate).toLocaleDateString('en-IN')],
       ['Payment Date', new Date(params.paidDate).toLocaleDateString('en-IN')],
       ['EMI Amount Due', `Rs. ${params.emiAmount.toLocaleString('en-IN')}`],
-      ...(penalty > 0 ? [['Penalty Charge (2%/mo)', `Rs. ${penalty.toLocaleString('en-IN')}`]] : []),
+      ...(penalty > 0 ? [[`Penalty Charge (${ratePercentage}%/mo)`, `Rs. ${penalty.toLocaleString('en-IN')}`]] : []),
       ['Amount Paid', `Rs. ${(params.totalPaidAmount || params.paidAmount).toLocaleString('en-IN')}`],
-      ...(params.coveredEMIs && params.coveredEMIs.length > 1 ? [['Covered Installments', `EMI #${params.coveredEMIs.join(', #')}`]] : []),
+      ...(params.coveredEMIs && params.coveredEMIs.length > 1 ? [['Covered Installments', `EMI ${params.coveredEMIs.join(', ')}`]] : []),
       ['Payment Method', params.paymentMethod.replace('_', ' ').toUpperCase()],
       ['Transaction / Ref. No.', params.transactionRef || '—'],
       ['Payment Status', (params.totalEMIs && params.paidEMIsCount === params.totalEMIs) || params.remainingBalance <= 0 ? 'LOAN FULLY REPAID' : 'PAID'],
@@ -181,9 +195,9 @@ export function generateEMIReceipt(params: {
       const isFullyRepaid = params.remainingBalance <= 0 || (params.totalEMIs && params.paidEMIsCount === params.totalEMIs);
       
       const rows = [
-        'Customer Name', 'Loan ID', 'EMI Number', 'EMI Due Date',
+        'Receipt No.', 'Customer Name', 'Loan ID', 'EMI Number', 'EMI Due Date',
         'Payment Date', 'EMI Amount Due',
-        ...(penalty > 0 ? ['Penalty Charge (2%/mo)'] : []),
+        ...(penalty > 0 ? [`Penalty Charge (${ratePercentage}%/mo)`] : []),
         'Amount Paid',
         ...(params.coveredEMIs && params.coveredEMIs.length > 1 ? ['Covered Installments'] : []),
         'Payment Method', 'Transaction / Ref. No.', 'Payment Status',
@@ -247,4 +261,11 @@ export function generateEMIReceipt(params: {
   doc.text(`${shop_address} | ${shop_phone}`, 105, 286, { align: 'center' });
 
   doc.save(`EMI-Receipt-${params.loanId}-EMI${params.emiNumber}.pdf`);
+
+  // Save a copy of loan completed receipt inside customer folder in Electron if fully repaid
+  const isFullyRepaid = params.remainingBalance <= 0 || (params.totalEMIs && params.paidEMIsCount === params.totalEMIs);
+  if (isFullyRepaid) {
+    const pdfBuffer = doc.output('arraybuffer');
+    savePdfToCustomerFolder(pdfBuffer, `Loan-Completed-Receipt-${params.loanId}.pdf`, params.customerName).catch(console.error);
+  }
 }

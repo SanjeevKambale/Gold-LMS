@@ -18,6 +18,7 @@ export function CustomerDetailsModal({ customer, onClose, onUpdate }: CustomerDe
 
   const [confirmVerifyDocId, setConfirmVerifyDocId] = useState<string | null>(null);
   const [confirmRejectDocId, setConfirmRejectDocId] = useState<string | null>(null);
+  const isConfirmOpen = !!confirmVerifyDocId || !!confirmRejectDocId;
 
   const validateDocNumber = (type: string, number: string) => {
     if (!number) return false;
@@ -88,22 +89,22 @@ export function CustomerDetailsModal({ customer, onClose, onUpdate }: CustomerDe
 
   return (
     <div className="fixed inset-0 bg-black flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-none border border-black/15 max-w-3xl w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
-        {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-black/15 px-6 py-4 flex items-center justify-between z-10">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-none border border-black/15 flex items-center justify-center font-bold text-white shadow-lg ${
-              formData.kycStatus === 'verified' ? 'bg-green-500 shadow-green-100' : 
-              formData.kycStatus === 'rejected' ? 'bg-red-500 shadow-red-100' : 'bg-yellow-500 shadow-yellow-100'
-            }`}>
-              {formData.name.charAt(0).toUpperCase()}
+      <div className={`bg-white rounded-none border border-black/15 max-w-3xl w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col ${isConfirmOpen ? 'hidden' : ''}`}>
+          {/* Header */}
+          <div className="sticky top-0 bg-white border-b border-black/15 px-6 py-4 flex items-center justify-between z-10">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-none border border-black/15 flex items-center justify-center font-bold text-white shadow-lg ${
+                formData.kycStatus === 'verified' ? 'bg-green-500 shadow-green-100' : 
+                formData.kycStatus === 'rejected' ? 'bg-red-500 shadow-red-100' : 'bg-yellow-500 shadow-yellow-100'
+              }`}>
+                {formData.name.charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">{formData.name}</h3>
+                <p className="text-xs text-gray-400 font-medium">Customer ID: {formData.id}</p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-xl font-bold text-gray-900">{formData.name}</h3>
-              <p className="text-xs text-gray-400 font-medium">Customer ID: {formData.id}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
             {!isEditing && (
               <button
                 onClick={() => setIsEditing(true)}
@@ -289,37 +290,38 @@ export function CustomerDetailsModal({ customer, onClose, onUpdate }: CustomerDe
           )}
         </div>
 
-        {/* Confirmation Modals */}
-        <ConfirmationModal
-          isOpen={!!confirmVerifyDocId}
-          onClose={() => setConfirmVerifyDocId(null)}
-          onConfirm={() => {
-            if (confirmVerifyDocId) {
-              handleDocStatusChange(confirmVerifyDocId, 'verified');
-              setConfirmVerifyDocId(null);
-            }
-          }}
-          title="Verify Document?"
-          message="Are you sure you want to verify this document? This will update the customer's KYC status and allow them to take loans."
-          confirmText="Verify Now"
-          type="info"
-        />
-
-        <ConfirmationModal
-          isOpen={!!confirmRejectDocId}
-          onClose={() => setConfirmRejectDocId(null)}
-          onConfirm={() => {
-            if (confirmRejectDocId) {
-              handleDocStatusChange(confirmRejectDocId, 'rejected');
-              setConfirmRejectDocId(null);
-            }
-          }}
-          title="Reject Document?"
-          message="Are you sure you want to reject this document? The customer will not be able to proceed until they provide a valid document."
-          confirmText="Reject Document"
-          type="danger"
-        />
       </div>
+
+      {/* Confirmation Modals */}
+      <ConfirmationModal
+        isOpen={!!confirmVerifyDocId}
+        onClose={() => setConfirmVerifyDocId(null)}
+        onConfirm={() => {
+          if (confirmVerifyDocId) {
+            handleDocStatusChange(confirmVerifyDocId, 'verified');
+            setConfirmVerifyDocId(null);
+          }
+        }}
+        title="Verify Document?"
+        message="Are you sure you want to verify this document? This will update the customer's KYC status and allow them to take loans."
+        confirmText="Verify Now"
+        type="info"
+      />
+
+      <ConfirmationModal
+        isOpen={!!confirmRejectDocId}
+        onClose={() => setConfirmRejectDocId(null)}
+        onConfirm={() => {
+          if (confirmRejectDocId) {
+            handleDocStatusChange(confirmRejectDocId, 'rejected');
+            setConfirmRejectDocId(null);
+          }
+        }}
+        title="Reject Document?"
+        message="Are you sure you want to reject this document? The customer will not be able to proceed until they provide a valid document."
+        confirmText="Reject Document"
+        type="danger"
+      />
     </div>
   );
 }

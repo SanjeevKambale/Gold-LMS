@@ -10,6 +10,7 @@ import {
   earlyCloseLoan,
   AmortizationRow,
 } from '../lib/db/emiService';
+import { getSystemWorkingDate } from '../lib/workingDate';
 
 interface EarlyClosureModalProps {
   loan: Loan;
@@ -23,6 +24,7 @@ export function EarlyClosureModal({ loan, onClose, onClosed }: EarlyClosureModal
   const [showSchedule, setShowSchedule] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [transactionRef, setTransactionRef] = useState('');
+  const [closureDate, setClosureDate]       = useState(() => getSystemWorkingDate());
   const [isLoading, setIsLoading]     = useState(false);
   const [result, setResult]           = useState<{ amountCharged: number; interestSaved: number } | null>(null);
 
@@ -68,7 +70,8 @@ export function EarlyClosureModal({ loan, onClose, onClosed }: EarlyClosureModal
         loan.tenure,
         paymentMethod,
         transactionRef || 'early-closure',
-        paidCount
+        paidCount,
+        closureDate
       );
       setResult(res);
       setStep('success');
@@ -84,14 +87,14 @@ export function EarlyClosureModal({ loan, onClose, onClosed }: EarlyClosureModal
       <div className="fixed inset-0 bg-black flex items-center justify-center z-50 p-4">
         <div className="bg-white rounded-none border border-black/15 w-full max-w-md shadow-2xl overflow-hidden">
           {/* Header */}
-          <div className="bg-gradient-to-br from-emerald-500 to-green-600 px-6 py-8 text-center relative overflow-hidden">
+          <div className="bg-green-600 px-6 py-8 text-center relative overflow-hidden">
             <div className="absolute -top-6 -right-6 w-24 h-24 bg-white opacity-10 rounded-full" />
             <div className="absolute -bottom-4 -left-4 w-16 h-16 bg-white opacity-10 rounded-full" />
             <div className="w-16 h-16 bg-white bg-opacity-20 rounded-full flex items-center justify-center mx-auto mb-3">
               <CheckCircle className="w-9 h-9 text-white" />
             </div>
             <h3 className="text-white font-bold text-xl">Loan Closed! 🎉</h3>
-            <p className="text-green-50 text-sm mt-1">Customer has cleared all dues</p>
+            <p className="text-green-100 text-sm mt-1">Customer has cleared all dues</p>
           </div>
 
           <div className="p-6 space-y-4">
@@ -113,23 +116,23 @@ export function EarlyClosureModal({ loan, onClose, onClosed }: EarlyClosureModal
 
             {/* Interest saved highlight */}
             {result.interestSaved > 0 && (
-              <div className="bg-emerald-50 border border-black/15 rounded-none border border-black/15 p-4">
+              <div className="bg-green-50 border border-green-200 rounded-none p-4">
                 <div className="flex items-center gap-2 mb-1">
-                  <Sparkles className="w-4 h-4 text-emerald-600" />
-                  <span className="text-sm font-bold text-emerald-800">Interest Saved</span>
+                  <Sparkles className="w-4 h-4 text-green-600" />
+                  <span className="text-sm font-bold text-green-800">Interest Saved</span>
                 </div>
-                <p className="text-2xl font-bold text-emerald-700">
+                <p className="text-2xl font-bold text-green-700">
                   ₹{result.interestSaved.toLocaleString('en-IN')}
                 </p>
-                <p className="text-xs text-emerald-600 mt-1">
+                <p className="text-xs text-green-600 mt-1">
                   Future interest waived on early closure
                 </p>
               </div>
             )}
 
-            <div className="bg-amber-50 border border-black/15 rounded-none border border-black/15 p-3 flex gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-              <p className="text-xs text-amber-800 font-medium">
+            <div className="bg-yellow-50 border border-yellow-200 rounded-none p-3 flex gap-2">
+              <AlertTriangle className="w-4 h-4 text-yellow-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-yellow-800 font-medium">
                 Gold pledged against this loan can now be returned to the customer.
               </p>
             </div>
@@ -148,14 +151,14 @@ export function EarlyClosureModal({ loan, onClose, onClosed }: EarlyClosureModal
 
   // ── Overview + Payment Form ────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 bg-black flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-none border border-black/15 w-full max-w-lg shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
+    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-none border border-black/15 w-full shadow-2xl flex flex-col overflow-hidden" style={{ maxWidth: '42rem', maxHeight: '90vh' }}>
 
         {/* Header */}
-        <div className="bg-gradient-to-r from-amber-500 to-yellow-500 px-6 py-5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white bg-opacity-20 rounded-none border border-black/15 flex items-center justify-center">
-              <TrendingDown className="w-5 h-5 text-white" />
+        <div className="bg-yellow-500 flex items-center justify-between" style={{ padding: '1.25rem 1.5rem' }}>
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-yellow-600 rounded-none flex items-center justify-center shadow-inner">
+              <TrendingDown className="w-6 h-6 text-white" />
             </div>
             <div>
               <h3 className="text-white font-bold text-lg leading-tight">Early Loan Closure</h3>
@@ -164,7 +167,7 @@ export function EarlyClosureModal({ loan, onClose, onClosed }: EarlyClosureModal
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-white hover:bg-white hover:bg-opacity-20 rounded-none border border-black/15 transition-colors"
+            className="p-2 text-white hover:bg-yellow-600 rounded-none transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -180,7 +183,7 @@ export function EarlyClosureModal({ loan, onClose, onClosed }: EarlyClosureModal
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2">
               <div
-                className="bg-gradient-to-r from-yellow-400 to-amber-500 h-2.5 rounded-full transition-all"
+                className="bg-yellow-500 h-2.5 rounded-full transition-all"
                 style={{ width: `${progressPct}%` }}
               />
             </div>
@@ -226,12 +229,12 @@ export function EarlyClosureModal({ loan, onClose, onClosed }: EarlyClosureModal
               ))}
 
               {/* Highlighted: Outstanding principal */}
-              <div className="px-4 py-4 bg-amber-50 flex justify-between items-center">
+              <div className="px-4 py-4 bg-yellow-50 flex justify-between items-center border-t border-yellow-200 border-b border-yellow-200">
                 <div>
-                  <p className="text-sm font-bold text-amber-900">💰 You Pay Today (Early Closure)</p>
-                  <p className="text-xs text-amber-700">Outstanding principal only — interest waived</p>
+                  <p className="text-sm font-bold text-yellow-900">💰 You Pay Today (Early Closure)</p>
+                  <p className="text-xs text-yellow-700">Outstanding principal only — interest waived</p>
                 </div>
-                <p className="text-xl font-bold text-amber-700">
+                <p className="text-xl font-bold text-yellow-700">
                   ₹{Math.round(outstandingPrincipal).toLocaleString('en-IN')}
                 </p>
               </div>
@@ -270,7 +273,7 @@ export function EarlyClosureModal({ loan, onClose, onClosed }: EarlyClosureModal
                 <table className="w-full text-xs">
                   <thead className="bg-gray-50 sticky top-0">
                     <tr>
-                      {['EMI #', 'Principal', 'Interest', 'Balance', 'Status'].map(h => (
+                      {['EMI', 'Principal', 'Interest', 'Balance', 'Status'].map(h => (
                         <th key={h} className="py-2 px-3 text-left text-gray-500 font-semibold whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -284,7 +287,7 @@ export function EarlyClosureModal({ loan, onClose, onClosed }: EarlyClosureModal
                           key={row.emiNumber}
                           className={`border-t border-black/15 ${
                             isPaid    ? 'bg-green-50/60 text-gray-500' :
-                            isCurrent ? 'bg-amber-50 font-semibold'   :
+                            isCurrent ? 'bg-yellow-50 font-semibold'   :
                             'text-gray-700'
                           }`}
                         >
@@ -296,7 +299,7 @@ export function EarlyClosureModal({ loan, onClose, onClosed }: EarlyClosureModal
                             {isPaid ? (
                               <span className="text-green-600 font-semibold">✓ Paid</span>
                             ) : isCurrent ? (
-                              <span className="text-amber-600 font-semibold">← Current</span>
+                              <span className="text-yellow-600 font-semibold">← Current</span>
                             ) : (
                               <span className="text-gray-400">Waived</span>
                             )}
@@ -355,13 +358,27 @@ export function EarlyClosureModal({ loan, onClose, onClosed }: EarlyClosureModal
               />
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Payment/Closure Date <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="date"
+                required
+                value={closureDate}
+                onChange={e => setClosureDate(e.target.value)}
+                max={getSystemWorkingDate()} // Cannot be in the future
+                className="w-full px-4 py-2.5 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent text-sm font-mono"
+              />
+            </div>
+
             {/* Summary pill */}
-            <div className="flex items-center justify-between bg-amber-50 border border-black/15 rounded-none border border-black/15 px-4 py-3">
+            <div className="flex items-center justify-between bg-yellow-50 border border-yellow-200 rounded-none px-4 py-3">
               <div className="flex items-center gap-2">
-                <Banknote className="w-4 h-4 text-amber-600" />
-                <span className="text-sm font-bold text-amber-900">Total to Collect</span>
+                <Banknote className="w-4 h-4 text-yellow-600" />
+                <span className="text-sm font-bold text-yellow-900">Total to Collect</span>
               </div>
-              <span className="text-lg font-bold text-amber-700">
+              <span className="text-lg font-bold text-yellow-700">
                 ₹{Math.round(outstandingPrincipal).toLocaleString('en-IN')}
               </span>
             </div>
@@ -377,7 +394,7 @@ export function EarlyClosureModal({ loan, onClose, onClosed }: EarlyClosureModal
               <button
                 type="submit"
                 disabled={isLoading}
-                className="py-3 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white rounded-none border border-black/15 font-bold text-sm transition-all shadow-md shadow-amber-200 flex items-center justify-center gap-2"
+                className="py-3 bg-yellow-500 hover:bg-yellow-600 text-white rounded-none border border-black/15 font-bold text-sm transition-all shadow-md flex items-center justify-center gap-2"
               >
                 {isLoading ? (
                   <>
