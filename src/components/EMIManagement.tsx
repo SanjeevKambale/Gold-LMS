@@ -17,8 +17,7 @@ interface EMIManagementProps {
 export function EMIManagement({ currentUser }: EMIManagementProps) {
   const [emis, setEmis] = useState<EMI[]>(() => {
     try { 
-      const allEmis = getSmartEMIs(); 
-      return allEmis.filter((e: EMI) => e.createdBy === currentUser.id);
+      return getSmartEMIs(); 
     } catch { return []; }
   });
   const [searchTerm, setSearchTerm] = useState('');
@@ -31,8 +30,7 @@ export function EMIManagement({ currentUser }: EMIManagementProps) {
 
   const refreshEMIs = () => { 
     try { 
-      const allEmis = getSmartEMIs(); 
-      setEmis(allEmis.filter((e: EMI) => e.createdBy === currentUser.id));
+      setEmis(getSmartEMIs());
     } catch {} 
   };
 
@@ -123,7 +121,7 @@ export function EMIManagement({ currentUser }: EMIManagementProps) {
     }
   };
 
-  const allContextEmis = getAllEMIs().filter(e => e.createdBy === currentUser.id);
+  const allContextEmis = getAllEMIs();
   const totalPendingCount = allContextEmis.filter(e => e.status === 'pending').length;
   const totalOverdueCount = allContextEmis.filter(e => e.status === 'overdue').length;
   const totalPaidCount = allContextEmis.filter(e => e.status === 'paid').length;

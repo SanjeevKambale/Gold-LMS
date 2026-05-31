@@ -24,21 +24,9 @@ export function Dashboard({ currentUser }: DashboardProps) {
 
   const loadData = () => {
     try {
-      const allCustomers = getAllCustomers();
-      const allLoans = getAllLoans();
-      const allEmis = getAllEMIs();
-
-      if (currentUser.role === 'staff') {
-        const staffCustomers = allCustomers.filter((c: Customer) => c.createdBy === currentUser.id);
-        const staffLoans = allLoans.filter((l: Loan) => l.createdBy === currentUser.id);
-        setCustomers(staffCustomers);
-        setLoans(staffLoans);
-        setEmis(allEmis.filter((e: EMI) => e.createdBy === currentUser.id));
-      } else {
-        setCustomers(allCustomers);
-        setLoans(allLoans);
-        setEmis(allEmis);
-      }
+      setCustomers(getAllCustomers());
+      setLoans(getAllLoans());
+      setEmis(getAllEMIs());
     } catch {
       // DB may not be ready
     }

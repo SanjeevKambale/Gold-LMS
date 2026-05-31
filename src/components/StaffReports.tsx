@@ -425,9 +425,7 @@ export function StaffReports({ currentUser }: StaffReportsProps) {
     try {
       const fetched = getAllLoans();
       setAllLoans(fetched);
-      setLoans(currentUser.role === 'staff'
-        ? fetched.filter(l => l.createdBy === currentUser.id)
-        : fetched);
+      setLoans(fetched);
       setEmis(getAllEMIs());
       setPayments(getAllPayments());
       setCustomers(getAllCustomers());

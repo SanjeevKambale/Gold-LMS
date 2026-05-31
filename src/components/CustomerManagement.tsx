@@ -14,10 +14,7 @@ interface CustomerManagementProps {
 export function CustomerManagement({ currentUser }: CustomerManagementProps) {
   const [customers, setCustomers] = useState<Customer[]>(() => {
     try { 
-      const allCustomers = getAllCustomers();
-      return currentUser.role === 'staff'
-        ? allCustomers.filter(c => c.createdBy === currentUser.id)
-        : allCustomers;
+      return getAllCustomers();
     } catch { return []; }
   });
   const [searchTerm, setSearchTerm] = useState('');
@@ -29,10 +26,7 @@ export function CustomerManagement({ currentUser }: CustomerManagementProps) {
 
   const refreshCustomers = () => {
     try { 
-      const allCustomers = getAllCustomers();
-      setCustomers(currentUser.role === 'staff'
-        ? allCustomers.filter(c => c.createdBy === currentUser.id)
-        : allCustomers);
+      setCustomers(getAllCustomers());
     } catch {}
   };
 

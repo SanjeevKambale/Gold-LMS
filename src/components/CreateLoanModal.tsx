@@ -19,11 +19,7 @@ export function CreateLoanModal({ onClose, onCreate, currentUser }: CreateLoanMo
   useEffect(() => {
     try {
       const allCustomers = getAllCustomers();
-      const filteredCustomers = currentUser.role === 'staff'
-        ? allCustomers.filter(c => c.createdBy === currentUser.id)
-        : allCustomers;
-      
-      setCustomers(filteredCustomers);
+      setCustomers(allCustomers);
       setGoldRates(getAllGoldRates());
     } catch {}
   }, [currentUser]);

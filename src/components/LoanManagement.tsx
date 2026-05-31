@@ -37,10 +37,7 @@ interface LoanManagementProps {
 export function LoanManagement({ currentUser }: LoanManagementProps) {
   const [loans, setLoans] = useState<Loan[]>(() => {
     try { 
-      const allLoans = getAllLoans();
-      return currentUser.role === 'staff' 
-        ? allLoans.filter(l => l.createdBy === currentUser.id)
-        : allLoans;
+      return getAllLoans();
     } catch { return []; }
   });
   const [searchTerm, setSearchTerm] = useState('');
@@ -81,10 +78,7 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
 
   const refreshLoans = () => { 
     try { 
-      const allLoans = getAllLoans();
-      setLoans(currentUser.role === 'staff' 
-        ? allLoans.filter(l => l.createdBy === currentUser.id)
-        : allLoans);
+      setLoans(getAllLoans());
     } catch {} 
   };
 
