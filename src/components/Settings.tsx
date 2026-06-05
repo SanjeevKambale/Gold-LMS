@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Save, Trash2, Building2, Phone, MapPin, CreditCard, AlertTriangle, Users, UserX, RefreshCw, Database, Upload } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Trash2, Building2, Phone, MapPin, CreditCard, AlertTriangle, Palette, Users, UserX, RefreshCw, Database, Upload, Check } from 'lucide-react';
 import { resetApplicationData, exportDatabase, importDatabase } from '../lib/database';
 import { User } from '../types';
-import { getAllSettings, updateSettings, AppSettings } from '../lib/db/settingsService';
+import { getAllSettings, updateSettings, AppSettings, getSystemTheme, updateSystemTheme } from '../lib/db/settingsService';
 import { logActivity } from '../lib/activityLogger';
 import { Button } from './ui/button';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -28,6 +28,7 @@ export function Settings({ currentUser, onLogout }: SettingsProps) {
   const [showImportConfirm, setShowImportConfirm] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [users, setUsers] = useState<User[]>([]);
+  const [activeTheme, setActiveTheme] = useState(() => getSystemTheme());
 
   const refreshUsers = () => {
     try { setUsers(getAllUsers()); } catch { /* ignore */ }
@@ -156,171 +157,240 @@ export function Settings({ currentUser, onLogout }: SettingsProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
-        {/* Business Profile */}
-        <div className="bg-white rounded-none border border-black/15 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-all duration-300">
-          <div className="px-6 py-4 border-b border-black/15 bg-gray-50/50 flex-shrink-0 flex justify-between items-center">
-            <h3 className="flex items-center gap-2 font-bold text-gray-900">
-              <Building2 className="w-4 h-4 text-yellow-600" />
-              Business Profile
-            </h3>
-            <Button
-              onClick={() => {
-                if (settings) {
-                  setSettings({
-                    ...settings,
-                    shop_name: '',
-                    shop_phone: '',
-                    shop_address: '',
-                    shop_upi_id: '',
-                  });
-                }
-              }}
-              variant="ghost"
-              size="sm"
-              className="text-red-500 hover:text-red-700 hover:bg-red-50 h-8 px-3 text-xs font-semibold rounded-none border border-black/15"
-            >
-              <Trash2 className="w-3 h-3 mr-1" />
-              Clear Fields
-            </Button>
-          </div>
-          <div className="p-6 space-y-4 flex-1">
-            <div className="space-y-1">
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">Shop Name</label>
-              <input
-                type="text"
-                value={settings.shop_name}
-                onChange={(e) => setSettings({ ...settings, shop_name: e.target.value })}
-                placeholder="Enter shop name"
-                className="w-full px-4 py-2.5 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition-all placeholder:text-gray-300"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">Shop Phone</label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={settings.shop_phone}
-                  onChange={(e) => setSettings({ ...settings, shop_phone: e.target.value })}
-                  placeholder="+91-0000000000"
-                  className="w-full py-2.5 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition-all placeholder:text-gray-300"
-                  style={{ paddingRight: '3rem', paddingLeft: '1rem' }}
-                />
-                <Phone className="text-gray-400 w-4 h-4" style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', left: 'auto' }} />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">Shop Address</label>
-              <div className="relative">
-                <textarea
-                  value={settings.shop_address}
-                  onChange={(e) => setSettings({ ...settings, shop_address: e.target.value })}
-                  placeholder="Street name, City, Pincode"
-                  className="w-full py-2.5 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none h-20 resize-none transition-all placeholder:text-gray-300"
-                  style={{ paddingRight: '3rem', paddingLeft: '1rem' }}
-                />
-                <MapPin className="text-gray-400 w-4 h-4" style={{ position: 'absolute', right: '1rem', top: '1rem', left: 'auto' }} />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">UPI ID for Payments</label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={settings.shop_upi_id}
-                  onChange={(e) => setSettings({ ...settings, shop_upi_id: e.target.value })}
-                  placeholder="payee@upi"
-                  className="w-full py-2.5 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition-all placeholder:text-gray-300"
-                  style={{ paddingRight: '3rem', paddingLeft: '1rem' }}
-                />
-                <CreditCard className="text-gray-400 w-4 h-4" style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', left: 'auto' }} />
-              </div>
-            </div>
-
-            {/* In-container Save Button */}
-            <div className="pt-4 border-t border-black/15 flex justify-end">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+        {/* Left Column Stack */}
+        <div className="space-y-6">
+          {/* Business Profile */}
+          <div className="bg-white rounded-none border border-black/15 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-all duration-300">
+            <div className="px-6 py-4 border-b border-black/15 bg-gray-50/50 flex-shrink-0 flex justify-between items-center">
+              <h3 className="flex items-center gap-2 font-bold text-gray-900">
+                <Building2 className="w-4 h-4 text-yellow-600" />
+                Business Profile
+              </h3>
               <Button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="w-full sm:w-fit flex items-center justify-center bg-yellow-500 hover:bg-yellow-600 text-white px-6 py-3 h-auto rounded-none border border-black/15 shadow-md shadow-yellow-100 transition-all font-semibold text-sm md:text-base"
+                onClick={() => {
+                  if (settings) {
+                    setSettings({
+                      ...settings,
+                      shop_name: '',
+                      shop_phone: '',
+                      shop_address: '',
+                      shop_upi_id: '',
+                    });
+                  }
+                }}
+                variant="ghost"
+                size="sm"
+                className="text-red-500 hover:text-red-700 hover:bg-red-50 h-8 px-3 text-xs font-semibold rounded-none border border-black/15"
               >
-                {isSaving ? (
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>Saving...</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <Save className="w-5 h-5" />
-                    <span>Save Changes</span>
-                  </div>
-                )}
+                <Trash2 className="w-3 h-3 mr-1" />
+                Clear Fields
               </Button>
             </div>
-          </div>
-        </div>
+            <div className="p-6 space-y-4 flex-1">
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">Shop Name</label>
+                <input
+                  type="text"
+                  value={settings.shop_name}
+                  onChange={(e) => setSettings({ ...settings, shop_name: e.target.value })}
+                  placeholder="Enter shop name"
+                  className="w-full px-4 py-2.5 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition-all placeholder:text-gray-300"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">Shop Phone</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={settings.shop_phone}
+                    onChange={(e) => setSettings({ ...settings, shop_phone: e.target.value })}
+                    placeholder="+91-0000000000"
+                    className="w-full py-2.5 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition-all placeholder:text-gray-300"
+                    style={{ paddingRight: '3rem', paddingLeft: '1rem' }}
+                  />
+                  <Phone className="text-gray-400 w-4 h-4" style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', left: 'auto' }} />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">Shop Address</label>
+                <div className="relative">
+                  <textarea
+                    value={settings.shop_address}
+                    onChange={(e) => setSettings({ ...settings, shop_address: e.target.value })}
+                    placeholder="Street name, City, Pincode"
+                    className="w-full py-2.5 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none h-20 resize-none transition-all placeholder:text-gray-300"
+                    style={{ paddingRight: '3rem', paddingLeft: '1rem' }}
+                  />
+                  <MapPin className="text-gray-400 w-4 h-4" style={{ position: 'absolute', right: '1rem', top: '1rem', left: 'auto' }} />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">UPI ID for Payments</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={settings.shop_upi_id}
+                    onChange={(e) => setSettings({ ...settings, shop_upi_id: e.target.value })}
+                    placeholder="payee@upi"
+                    className="w-full py-2.5 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition-all placeholder:text-gray-300"
+                    style={{ paddingRight: '3rem', paddingLeft: '1rem' }}
+                  />
+                  <CreditCard className="text-gray-400 w-4 h-4" style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', left: 'auto' }} />
+                </div>
+              </div>
 
-
-        {/* Account & User Management */}
-        <div className="bg-white rounded-none border border-black/15 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-all duration-300">
-          <div className="px-6 py-4 border-b border-black/15 bg-gray-50/50 flex-shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <h3 className="flex items-center gap-2 font-bold text-gray-900">
-              <Users className="w-4 h-4 text-blue-600" />
-              Account & User Management
-            </h3>
-            <Button
-              onClick={() => setShowCreateStaffModal(true)}
-              variant="outline"
-              size="sm"
-              className="border-black/15 text-blue-600 hover:bg-blue-50 h-8 px-3 text-xs font-semibold rounded-none border border-black/15"
-            >
-              <UserPlus className="w-3.5 h-3.5 mr-1" />
-              Add New Staff
-            </Button>
-          </div>
-          <div className="p-6 flex flex-col flex-1 space-y-6">
-            {/* User List */}
-            <div>
-              <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">System Users</h4>
-              <div className="space-y-2">
-                {users.filter((u: User) => u.id !== currentUser.id).length === 0 ? (
-                  <p className="py-2 text-xs text-gray-400 italic">No other staff accounts found.</p>
-                ) : (
-                  users.filter((u: User) => u.id !== currentUser.id).map((user: User) => (
-                    <div key={user.id} className="flex items-center justify-between py-2 border-b border-black/15 last:border-0 hover:bg-gray-50/50 transition-colors px-2 rounded-none border border-black/15">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-9 h-9 rounded-none border border-black/15 flex items-center justify-center text-xs font-bold shadow-sm ${
-                          user.role === 'admin' ? 'bg-yellow-100 text-yellow-700 border border-black/15' : 'bg-blue-100 text-blue-700 border border-black/15'
-                        }`}>
-                          {user.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-gray-900">{user.name}</p>
-                          <p className="text-[10px] text-gray-500">{user.email}</p>
-                        </div>
-                      </div>
-                      <Button
-                        onClick={() => setStaffToDelete(user)}
-                        variant="ghost"
-                        size="sm"
-                        className="text-red-500 hover:text-red-700 hover:bg-red-50 h-8 px-3 text-[10px] font-bold rounded-none border border-black/15"
-                      >
-                        <UserX className="w-3.5 h-3.5 mr-1" />
-                        Delete
-                      </Button>
+              {/* In-container Save Button */}
+              <div className="pt-4 border-t border-black/15 flex justify-end">
+                <Button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="w-full sm:w-fit flex items-center justify-center bg-yellow-500 hover:bg-yellow-600 text-white px-6 py-3 h-auto rounded-none border border-black/15 shadow-md shadow-yellow-100 transition-all font-semibold text-sm md:text-base"
+                >
+                  {isSaving ? (
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Saving...</span>
                     </div>
-                  ))
-                )}
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Save className="w-5 h-5" />
+                      <span>Save Changes</span>
+                    </div>
+                  )}
+                </Button>
               </div>
             </div>
+          </div>
 
-            {/* Data Management (Admin Only) */}
-            {currentUser.role === 'admin' && (
-              <div className="pt-6 border-t border-black/15 mt-4">
-                <h4 className="flex items-center gap-2 text-sm font-bold text-gray-900 mb-2">
+          {/* Color Theme Options (Admin Only) */}
+          {currentUser.role === 'admin' && (
+            <div className="bg-white rounded-none border border-black/15 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-all duration-300">
+              <div className="px-6 py-4 border-b border-black/15 bg-gray-50/50 flex-shrink-0">
+                <h3 className="flex items-center gap-2 font-bold text-gray-900">
+                  <Palette className="w-4 h-4 text-yellow-600 animate-pulse" />
+                  Color Theme Options
+                </h3>
+              </div>
+              <div className="p-6">
+                <p className="text-[10px] md:text-xs text-gray-500 mb-4 leading-relaxed">
+                  Select a corporate-wide primary color theme for the entire gold loan management system. This will sync on all terminals.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { id: 'gold', name: 'Classic Gold', color: '#d4af37', label: 'Classic Accents' },
+                    { id: 'emerald', name: 'Emerald Mint', color: '#10b981', label: 'Green Accents' },
+                    { id: 'ruby', name: 'Royal Crimson', color: '#fa5252', label: 'Red Accents' },
+                    { id: 'obsidian', name: 'Sleek Obsidian', color: '#475569', label: 'Gray Accents' }
+                  ].map((t) => {
+                    const isSelected = activeTheme === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => {
+                          updateSystemTheme(t.id);
+                          setActiveTheme(t.id);
+                          setSaveMessage({ type: 'success', text: `System theme changed to ${t.name} successfully!` });
+                          setTimeout(() => setSaveMessage(null), 3000);
+                        }}
+                        className={`flex items-center gap-3 p-3.5 cursor-pointer transition-all duration-200 border rounded-lg hover:shadow-sm active:scale-[0.98] ${
+                          isSelected
+                            ? t.id === 'gold' ? 'border-[#d4af37] bg-[#d4af37]/5 ring-1 ring-[#d4af37]'
+                              : t.id === 'emerald' ? 'border-[#10b981] bg-[#10b981]/5 ring-1 ring-[#10b981]'
+                              : t.id === 'ruby' ? 'border-[#fa5252] bg-[#fa5252]/5 ring-1 ring-[#fa5252]'
+                              : 'border-[#475569] bg-[#475569]/5 ring-1 ring-[#475569]'
+                            : 'border-black/10 bg-white hover:bg-gray-50/50 hover:border-black/20'
+                        }`}
+                      >
+                        <div 
+                          className="w-5 h-5 rounded-full flex items-center justify-center border border-black/10 shadow-inner shrink-0" 
+                          style={{ backgroundColor: t.color }}
+                        >
+                          {isSelected && (
+                            <Check className="w-3 h-3 text-white stroke-[3.5px]" />
+                          )}
+                        </div>
+                        <div className="flex flex-col items-start text-left">
+                          <span className={`text-xs font-bold text-gray-900 leading-none mb-0.5 ${isSelected ? 'text-gray-950 font-extrabold' : ''}`}>{t.name}</span>
+                          <span className="text-[9px] text-gray-400 font-medium">{t.label}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right Column Stack */}
+        <div className="space-y-6">
+          {/* Account & User Management */}
+          <div className="bg-white rounded-none border border-black/15 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-all duration-300">
+            <div className="px-6 py-4 border-b border-black/15 bg-gray-50/50 flex-shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <h3 className="flex items-center gap-2 font-bold text-gray-900">
+                <Users className="w-4 h-4 text-blue-600" />
+                Account & User Management
+              </h3>
+              <Button
+                onClick={() => setShowCreateStaffModal(true)}
+                variant="outline"
+                size="sm"
+                className="border-black/15 text-blue-600 hover:bg-blue-50 h-8 px-3 text-xs font-semibold rounded-none border border-black/15"
+              >
+                <UserPlus className="w-3.5 h-3.5 mr-1" />
+                Add New Staff
+              </Button>
+            </div>
+            <div className="p-6">
+              {/* User List */}
+              <div>
+                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">System Users</h4>
+                <div className="space-y-2">
+                  {users.filter((u: User) => u.id !== currentUser.id).length === 0 ? (
+                    <p className="py-2 text-xs text-gray-400 italic">No other staff accounts found.</p>
+                  ) : (
+                    users.filter((u: User) => u.id !== currentUser.id).map((user: User) => (
+                      <div key={user.id} className="flex items-center justify-between py-2 border-b border-black/15 last:border-0 hover:bg-gray-50/50 transition-colors px-2 rounded-none border border-black/15">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-9 h-9 rounded-none border border-black/15 flex items-center justify-center text-xs font-bold shadow-sm ${
+                            user.role === 'admin' ? 'bg-yellow-100 text-yellow-700 border border-black/15' : 'bg-blue-100 text-blue-700 border border-black/15'
+                          }`}>
+                            {user.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-gray-900">{user.name}</p>
+                            <p className="text-[10px] text-gray-500">{user.email}</p>
+                          </div>
+                        </div>
+                        <Button
+                          onClick={() => setStaffToDelete(user)}
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-500 hover:text-red-700 hover:bg-red-50 h-8 px-3 text-[10px] font-bold rounded-none border border-black/15"
+                        >
+                          <UserX className="w-3.5 h-3.5 mr-1" />
+                          Delete
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Data Management (Admin Only) */}
+          {currentUser.role === 'admin' && (
+            <div className="bg-white rounded-none border border-black/15 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-all duration-300">
+              <div className="px-6 py-4 border-b border-black/15 bg-gray-50/50 flex-shrink-0">
+                <h3 className="flex items-center gap-2 font-bold text-gray-900">
                   <Database className="w-4 h-4 text-blue-600" />
                   Data Management
-                </h4>
+                </h3>
+              </div>
+              <div className="p-6">
                 <p className="text-[10px] md:text-xs text-gray-500 mb-4 leading-relaxed">
                   Download a complete backup of the application database, or restore an existing backup. Restoring a backup will overwrite all current data.
                 </p>
@@ -346,15 +416,19 @@ export function Settings({ currentUser, onLogout }: SettingsProps) {
                   </label>
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Danger Zone */}
-            <div className="pt-6 border-t border-black/15 mt-auto">
-              <h4 className="flex items-center gap-2 text-sm font-bold text-red-600 mb-2">
+          {/* Danger Zone */}
+          <div className="bg-white rounded-none border border-black/15 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-all duration-300">
+            <div className="px-6 py-4 border-b border-black/15 bg-gray-50/50 flex-shrink-0">
+              <h3 className="flex items-center gap-2 font-bold text-red-600">
                 <AlertTriangle className="w-4 h-4" />
                 Danger Zone
-              </h4>
-              <p className="text-[10px] md:text-xs text-gray-500 mb-4 leading-relaxed">
+              </h3>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-[10px] md:text-xs text-gray-500 leading-relaxed">
                 Permanently remove your account (<strong>{currentUser.name}</strong>) from the system. 
                 <span className="block mt-1 text-red-400 italic font-medium">This action cannot be undone.</span>
               </p>
@@ -369,7 +443,7 @@ export function Settings({ currentUser, onLogout }: SettingsProps) {
 
               {/* Reset Application Data (Admin Only) Integrated Below */}
               {currentUser.role === 'admin' && (
-                <div className="mt-4">
+                <div className="mt-4 pt-4 border-t border-black/15">
                   <div 
                     onClick={() => setShowResetConfirm(true)}
                     className="group cursor-pointer flex items-center justify-center gap-2 p-3 border border-black/15 rounded-none border border-black/15 hover:bg-red-50 hover:border-black/15 transition-all duration-300"
@@ -382,7 +456,6 @@ export function Settings({ currentUser, onLogout }: SettingsProps) {
             </div>
           </div>
         </div>
-
       </div>
 
 

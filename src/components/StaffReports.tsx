@@ -436,7 +436,7 @@ export function StaffReports({ currentUser }: StaffReportsProps) {
   useEffect(() => { loadData(); }, [currentUser]);
 
   const activeLoans  = useMemo(() => loans.filter(l => l.status === 'active'), [loans]);
-  const closedLoans  = useMemo(() => loans.filter(l => l.status === 'closed' || l.status === 'completed'), [loans]);
+  const closedLoans  = useMemo(() => loans.filter(l => l.status === 'closed' || l.status === 'completed' || l.status === 'auctioned'), [loans]);
   const overdueLoans = useMemo(() => loans.filter(l => l.status === 'defaulted'), [loans]);
 
   const reportsList = [
@@ -858,6 +858,7 @@ export function StaffReports({ currentUser }: StaffReportsProps) {
               { value: '',          label: 'All Statuses' },
               { value: 'closed',    label: 'Closed' },
               { value: 'completed', label: 'Completed' },
+              { value: 'auctioned', label: 'Auctioned' },
             ]}
           />
         </ReportHeader>
@@ -879,7 +880,11 @@ export function StaffReports({ currentUser }: StaffReportsProps) {
                   <td className="p-3 text-sm font-semibold">{loan.customerName}</td>
                   <td className="p-3 text-sm font-bold">₹{loan.loanAmount.toLocaleString()}</td>
                   <td className="p-3 text-sm">
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-bold border border-current ${loan.status === 'completed' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-bold border border-current ${
+                      loan.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                      loan.status === 'auctioned' ? 'bg-orange-100 text-orange-700' :
+                      'bg-gray-100 text-gray-700'
+                    }`}>
                       {loan.status}
                     </span>
                   </td>

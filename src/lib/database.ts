@@ -1,37 +1,65 @@
 import type { Database, SqlJsStatic } from 'sql.js';
-// sql.js is CommonJS - Vite pre-bundles it, but we need to handle default-interop
 import _initSqlJs from 'sql.js';
 const initSqlJs: (config?: { locateFile: (filename: string) => string }) => Promise<SqlJsStatic> =
   ((_initSqlJs as any).default ?? _initSqlJs) as any;
-import { hashPassword } from './db/authService';
-import { updateOverdueEMIs } from './db/emiService';
-import { getSystemWorkingDate } from './workingDate';
+
+import { supabase, isConfigured, supabaseUrl, supabaseAnonKey } from './supabaseClient';
+import { User, Customer, Loan, EMI, Payment, GoldRate, LoanTransfer, ActivityLog } from '../types';
 
 let db: Database | null = null;
-let initError: string | null = null;
 let SQLInstance: SqlJsStatic | null = null;
+let initError: string | null = null;
+let isInitializing = false;
+let isInitialized = false;
+let initPromise: Promise<void> | null = null;
 const DB_STORE_NAME = 'gold_loan_db';
 const DB_KEY = 'database';
 const DB_FILE_NAME = 'gold_loan_data.db';
 
-// ─── File-based helpers (Electron only) ──────────────────────────────────────
+// ─── UNIFIED CACHED MEMORY ARRAYS ────────────────────────────────────────────
+export let cachedUsers: User[] = [];
+export let cachedCustomers: Customer[] = [];
+export let cachedLoans: Loan[] = [];
+export let cachedEmis: EMI[] = [];
+export let cachedPayments: Payment[] = [];
+export let cachedSettings: { [key: string]: string } = {};
+export let cachedGoldRates: GoldRate[] = [];
+export let cachedTransfers: LoanTransfer[] = [];
+export let cachedActivityLogs: ActivityLog[] = [];
+
+// ─── NETWORK CONNECTION CHECK ────────────────────────────────────────────────
+export async function isOnline(): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return false;
+  }
+  try {
+    const headers: HeadersInit = {};
+    if (supabaseAnonKey && supabaseAnonKey !== 'placeholder-key') {
+      headers['apikey'] = supabaseAnonKey;
+    }
+    const response = await fetch(`${supabaseUrl}/rest/v1/`, { 
+      method: 'HEAD', 
+      headers, 
+      cache: 'no-store' 
+    });
+    return response.status === 200 || response.status === 401 || response.status === 400;
+  } catch {
+    return false;
+  }
+}
+
+// ─── LOCAL FILE & INDEXEDDB UTILITIES ────────────────────────────────────────
 function getDbFilePath(): string | null {
   if (typeof window !== 'undefined' && (window as any).process && (window as any).require) {
     try {
       const path = (window as any).require('path');
       const electron = (window as any).require('electron');
-      
       let baseDir: string | null = null;
-      
-      // Try getting path from Electron's app (via remote if available, or directly)
       try {
         const app = electron.app || (electron.remote && electron.remote.app);
-        if (app) {
-          baseDir = app.getPath('userData');
-        }
-      } catch (e) {}
+        if (app) baseDir = app.getPath('userData');
+      } catch {}
 
-      // Fallback to environment variables if Electron app path is not accessible
       if (!baseDir) {
         const appName = 'Gold Loan Manager';
         if (process.platform === 'win32' && process.env.APPDATA) {
@@ -43,7 +71,6 @@ function getDbFilePath(): string | null {
         }
       }
 
-      // Final fallback to the folder containing the executable
       if (!baseDir) {
         baseDir = window.location.pathname.replace(/\/[^\/]+$/, '');
         if (process.platform === 'win32' || baseDir.includes(':')) {
@@ -52,22 +79,17 @@ function getDbFilePath(): string | null {
         }
       }
       
-      // Ensure the directory exists (optional but good practice)
       if (baseDir) {
         try {
           const fs = (window as any).require('fs');
           if (!fs.existsSync(baseDir)) {
             fs.mkdirSync(baseDir, { recursive: true });
           }
-        } catch (e) {}
-        
-        const finalPath = path.join(baseDir, DB_FILE_NAME);
-        console.log("Database path:", finalPath);
-        return finalPath;
+        } catch {}
+        return path.join(baseDir, DB_FILE_NAME);
       }
     } catch (e) {
       console.warn("Failed to determine DB path:", e);
-      return null;
     }
   }
   return null;
@@ -101,7 +123,6 @@ async function saveToFile(data: Uint8Array): Promise<void> {
   }
 }
 
-// ─── IndexedDB helpers ────────────────────────────────────────────────────────
 function openIDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_STORE_NAME, 1);
@@ -112,38 +133,43 @@ function openIDB(): Promise<IDBDatabase> {
 }
 
 async function loadFromIDB(): Promise<Uint8Array | null> {
-  const idb = await openIDB();
-  return new Promise((resolve, reject) => {
-    const tx = idb.transaction(DB_STORE_NAME, 'readonly');
-    const req = tx.objectStore(DB_STORE_NAME).get(DB_KEY);
-    req.onsuccess = () => resolve(req.result ?? null);
-    req.onerror = () => reject(req.error);
-  });
+  try {
+    const idb = await openIDB();
+    return new Promise((resolve, reject) => {
+      const tx = idb.transaction(DB_STORE_NAME, 'readonly');
+      const req = tx.objectStore(DB_STORE_NAME).get(DB_KEY);
+      req.onsuccess = () => resolve(req.result ?? null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return null;
+  }
 }
 
-export async function saveToIDB(data: Uint8Array): Promise<void> {
-  const idb = await openIDB();
-  return new Promise((resolve, reject) => {
-    const tx = idb.transaction(DB_STORE_NAME, 'readwrite');
-    const req = tx.objectStore(DB_STORE_NAME).put(data, DB_KEY);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
+async function saveToIDB(data: Uint8Array): Promise<void> {
+  try {
+    const idb = await openIDB();
+    return new Promise<void>((resolve, reject) => {
+      const tx = idb.transaction(DB_STORE_NAME, 'readwrite');
+      const req = tx.objectStore(DB_STORE_NAME).put(data, DB_KEY);
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.error(err);
+  }
 }
 
-// ─── Save helper (call after every write) ────────────────────────────────────
 export function saveDB(): void {
   if (db) {
     const data = db.export();
-    // 1. Try file-based save (Electron)
     saveToFile(data).catch(() => {});
-    // 2. Keep IndexedDB as backup/web-fallback
     saveToIDB(data).catch(console.error);
   }
 }
 
-// ─── Schema + seed ────────────────────────────────────────────────────────────
-function createSchema(database: Database): void {
+// ─── SQLITE SCHEMA CREATION ──────────────────────────────────────────────────
+function createSQLiteSchema(database: Database): void {
   database.run(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -166,7 +192,8 @@ function createSchema(database: Database): void {
       kyc_number TEXT NOT NULL,
       created_at TEXT NOT NULL,
       photo_url TEXT,
-      created_by TEXT
+      created_by TEXT,
+      kyc_docs_json TEXT
     );
 
     CREATE TABLE IF NOT EXISTS loan_types (
@@ -176,13 +203,14 @@ function createSchema(database: Database): void {
       min_amount REAL NOT NULL,
       max_amount REAL NOT NULL,
       min_tenure INTEGER NOT NULL,
-      max_tenure INTEGER NOT NULL
+      max_tenure INTEGER NOT NULL,
+      repayment_scheme TEXT NOT NULL DEFAULT 'EMI'
     );
 
     CREATE TABLE IF NOT EXISTS gold_rates (
       id TEXT PRIMARY KEY,
-      gold_type TEXT NOT NULL,
-      rate_per_gram REAL NOT NULL,
+      gold_type TEXT NOT NULL UNIQUE,
+      rate_per_gram REAL NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL
     );
 
@@ -208,6 +236,7 @@ function createSchema(database: Database): void {
       locker_number TEXT,
       packet_number TEXT,
       ornament_photo_url TEXT,
+      repayment_scheme TEXT NOT NULL DEFAULT 'EMI',
       penalty_rate REAL NOT NULL DEFAULT 2
     );
 
@@ -229,6 +258,27 @@ function createSchema(database: Database): void {
       penalty_rate REAL NOT NULL DEFAULT 2
     );
 
+    CREATE TABLE IF NOT EXISTS payments (
+      id TEXT PRIMARY KEY,
+      loan_id TEXT NOT NULL,
+      payment_type TEXT NOT NULL,
+      amount REAL NOT NULL,
+      payment_date TEXT NOT NULL,
+      principal_component REAL NOT NULL DEFAULT 0,
+      interest_component REAL NOT NULL DEFAULT 0,
+      penalty_component REAL NOT NULL DEFAULT 0,
+      payment_method TEXT,
+      transaction_ref TEXT,
+      created_by TEXT,
+      created_at TEXT NOT NULL,
+      customer_name TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS activity_logs (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -238,11 +288,6 @@ function createSchema(database: Database): void {
       description TEXT NOT NULL,
       details TEXT,
       timestamp TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS loan_transfers (
@@ -263,340 +308,509 @@ function createSchema(database: Database): void {
       rejection_reason TEXT
     );
 
-    CREATE TABLE IF NOT EXISTS payments (
+    CREATE TABLE IF NOT EXISTS sync_queue (
       id TEXT PRIMARY KEY,
-      loan_id TEXT NOT NULL,
-      payment_type TEXT NOT NULL,
-      amount REAL NOT NULL,
-      payment_date TEXT NOT NULL,
-      principal_component REAL NOT NULL,
-      interest_component REAL NOT NULL,
-      penalty_component REAL NOT NULL,
-      payment_method TEXT,
-      transaction_ref TEXT,
-      created_by TEXT,
-      created_at TEXT NOT NULL,
-      customer_name TEXT
+      table_name TEXT NOT NULL,
+      action TEXT NOT NULL,
+      record_id TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      timestamp TEXT NOT NULL
     );
   `);
+}
 
-    // Migration: Add new columns if they don't exist
+// ─── SQLITE CRUD HELPERS ─────────────────────────────────────────────────────
+export function queryRows(sql: string, params: any[] = []): any[] {
+  if (!db) return [];
+  const stmt = db.prepare(sql);
+  stmt.bind(params);
+  const rows: any[] = [];
+  while (stmt.step()) {
+    rows.push(stmt.getAsObject());
+  }
+  stmt.free();
+  return rows;
+}
+
+export function insertLocalRow(tableName: string, payload: any, skipSave = false): void {
+  if (!db) return;
+  const keys = Object.keys(payload);
+  const values = Object.values(payload) as any[];
+  const placeholders = keys.map(() => '?').join(', ');
+  const sql = `INSERT OR REPLACE INTO ${tableName} (${keys.join(', ')}) VALUES (${placeholders})`;
+  db.run(sql, values);
+  if (!skipSave) saveDB();
+}
+
+export function updateLocalRow(tableName: string, payload: any, recordId: string, skipSave = false): void {
+  if (!db) return;
+  const keys = Object.keys(payload);
+  const values = Object.values(payload) as any[];
+  const setClause = keys.map(k => `${k} = ?`).join(', ');
+  const idCol = tableName === 'settings' ? 'key' : 'id';
+  const sql = `UPDATE ${tableName} SET ${setClause} WHERE ${idCol} = ?`;
+  db.run(sql, [...values, recordId]);
+  if (!skipSave) saveDB();
+}
+
+export function deleteLocalRow(tableName: string, recordId: string, skipSave = false): void {
+  if (!db) return;
+  const idCol = tableName === 'settings' ? 'key' : 'id';
+  const sql = `DELETE FROM ${tableName} WHERE ${idCol} = ?`;
+  db.run(sql, [recordId]);
+  if (!skipSave) saveDB();
+}
+
+// ─── HYBRID SYNC WRITE OPERATOR ──────────────────────────────────────────────
+export function syncWrite(
+  tableName: string,
+  action: 'insert' | 'update' | 'delete',
+  recordId: string,
+  payload?: any
+): void {
+  // 1. Commit to SQLite synchronously first
+  try {
+    if (action === 'insert') {
+      insertLocalRow(tableName, payload);
+    } else if (action === 'update') {
+      updateLocalRow(tableName, payload, recordId);
+    } else if (action === 'delete') {
+      deleteLocalRow(tableName, recordId);
+    }
+  } catch (err) {
+    console.error(`Failed to commit local SQLite write on ${tableName}:`, err);
+  }
+
+  // 2. Queue or sync to Supabase in the background
+  (async () => {
     try {
-      const tables = ['customers', 'loans', 'emis'];
-      const adminResult = database.exec("SELECT id FROM users WHERE role='admin' LIMIT 1");
-      const adminId = adminResult.length > 0 ? (adminResult[0].values[0][0] as string) : null;
-
-      tables.forEach(table => {
-        const tableInfo = database.exec(`PRAGMA table_info('${table}')`);
-        if (tableInfo.length > 0) {
-          const columns = tableInfo[0].values.map(row => row[1] as string);
-          
-          // Add created_by if missing
-          if (!columns.includes('created_by')) {
-            database.run(`ALTER TABLE ${table} ADD COLUMN created_by TEXT`);
-            if (adminId) {
-              database.run(`UPDATE ${table} SET created_by = ? WHERE created_by IS NULL`, [adminId]);
-            }
-          }
-
-          // Add item_type to loans if missing
-          if (table === 'loans' && !columns.includes('item_type')) {
-            database.run("ALTER TABLE loans ADD COLUMN item_type TEXT");
-            database.run("UPDATE loans SET item_type = 'Other' WHERE item_type IS NULL");
-          }
-          
-          // Add kyc_docs_json to customers if missing
-          if (table === 'customers' && !columns.includes('kyc_docs_json')) {
-            database.run('ALTER TABLE customers ADD COLUMN kyc_docs_json TEXT');
-          }
-          
-          // Add branch_id to loans if missing
-          if (table === 'loans' && !columns.includes('branch_id')) {
-            database.run('ALTER TABLE loans ADD COLUMN branch_id TEXT');
-          }
-          
-          // Add locker_number to loans if missing
-          if (table === 'loans' && !columns.includes('locker_number')) {
-            database.run('ALTER TABLE loans ADD COLUMN locker_number TEXT');
-          }
-
-          // Add packet_number to loans if missing
-          if (table === 'loans' && !columns.includes('packet_number')) {
-            database.run('ALTER TABLE loans ADD COLUMN packet_number TEXT');
-          }
-
-          // Add ornament_photo_url to loans if missing
-          if (table === 'loans' && !columns.includes('ornament_photo_url')) {
-            database.run('ALTER TABLE loans ADD COLUMN ornament_photo_url TEXT');
-          }
-
-          // Add repayment_scheme to loans if missing
-          if (table === 'loans' && !columns.includes('repayment_scheme')) {
-            database.run("ALTER TABLE loans ADD COLUMN repayment_scheme TEXT");
-            database.run("UPDATE loans SET repayment_scheme = 'EMI' WHERE repayment_scheme IS NULL");
-          }
-        }
-      });
-
-      // Add repayment_scheme to loan_types if missing
-      const ltInfo = database.exec("PRAGMA table_info('loan_types')");
-      if (ltInfo.length > 0) {
-        const columns = ltInfo[0].values.map(row => row[1] as string);
-        if (!columns.includes('repayment_scheme')) {
-          database.run("ALTER TABLE loan_types ADD COLUMN repayment_scheme TEXT");
-          database.run("UPDATE loan_types SET repayment_scheme = 'EMI' WHERE repayment_scheme IS NULL");
-        }
+      const online = await isOnline();
+      if (!online) {
+        throw new Error('Offline mode active.');
       }
 
-      // Cleanup: Remove any EMIs that were accidentally generated for Bullet loans
+      let error;
+      if (action === 'insert') {
+        const res = await supabase.from(tableName).insert([payload]);
+        error = res.error;
+      } else if (action === 'update') {
+        const idCol = tableName === 'settings' ? 'key' : 'id';
+        const res = await supabase.from(tableName).update(payload).eq(idCol, recordId);
+        error = res.error;
+      } else if (action === 'delete') {
+        const idCol = tableName === 'settings' ? 'key' : 'id';
+        const res = await supabase.from(tableName).delete().eq(idCol, recordId);
+        error = res.error;
+      }
+
+      if (error) throw error;
+    } catch (err: any) {
+      console.warn(`Cloud push failed for ${tableName} (${action}). Appending to sync queue.`, err.message || err);
+      // Append to the sync queue in local SQLite
+      const queueItem = {
+        id: `sq_${Math.random().toString(36).substring(2, 11)}_${Date.now()}`,
+        table_name: tableName,
+        action,
+        record_id: recordId,
+        payload_json: payload ? JSON.stringify(payload) : '{}',
+        timestamp: new Date().toISOString()
+      };
       try {
-        database.run("DELETE FROM emis WHERE loan_id IN (SELECT id FROM loans WHERE repayment_scheme = 'BULLET')");
-      } catch (e) {
-        // Ignore if table doesn't exist yet
+        insertLocalRow('sync_queue', queueItem);
+      } catch (qErr) {
+        console.error('Failed to append to sync queue in SQLite:', qErr);
+      }
+    }
+  })();
+}
+
+// ─── SYNC QUEUE PROCESSING ───────────────────────────────────────────────────
+let isSyncing = false;
+
+export async function processSyncQueue(): Promise<void> {
+  if (isSyncing) return;
+  if (!db) return;
+
+  try {
+    const online = await isOnline();
+    if (!online) return;
+
+    const queue = queryRows("SELECT * FROM sync_queue ORDER BY timestamp ASC");
+    if (queue.length === 0) return;
+
+    isSyncing = true;
+    console.log(`Synchronizing ${queue.length} offline operations to Supabase cloud...`);
+
+    for (const item of queue) {
+      const { id, table_name, action, record_id, payload_json } = item;
+      const payload = JSON.parse(payload_json);
+
+      let error;
+      if (action === 'insert') {
+        const res = await supabase.from(table_name).insert([payload]);
+        error = res.error;
+      } else if (action === 'update') {
+        const idCol = table_name === 'settings' ? 'key' : 'id';
+        const res = await supabase.from(table_name).update(payload).eq(idCol, record_id);
+        error = res.error;
+      } else if (action === 'delete') {
+        const idCol = table_name === 'settings' ? 'key' : 'id';
+        const res = await supabase.from(table_name).delete().eq(idCol, record_id);
+        error = res.error;
       }
 
-      // Special case for existing emis table migration if not already handled
-      const emiInfo = database.exec("PRAGMA table_info('emis')");
-      if (emiInfo.length > 0) {
-        const columns = emiInfo[0].values.map(row => row[1] as string);
-        if (!columns.includes('payment_method')) {
-          database.run("ALTER TABLE emis ADD COLUMN payment_method TEXT");
+      if (error) {
+        const isNetwork = error.message && (
+          error.message.includes('fetch') ||
+          error.message.includes('Network') ||
+          error.message.includes('getaddrinfo')
+        );
+        if (isNetwork) {
+          console.warn("Network unreachable. Pausing sync queue execution.");
+          break;
+        } else {
+          // If it's a structural or validation error, delete from queue so it doesn't block the rest
+          console.error(`Supabase rejected synced item ${id} on ${table_name}: ${error.message}`);
+          db.run("DELETE FROM sync_queue WHERE id = ?", [id]);
+          saveDB();
         }
-        if (!columns.includes('transaction_ref')) {
-          database.run("ALTER TABLE emis ADD COLUMN transaction_ref TEXT");
-        }
-        if (!columns.includes('payment_id')) {
-          database.run("ALTER TABLE emis ADD COLUMN payment_id TEXT");
-        }
+      } else {
+        // Success: remove from local queue
+        db.run("DELETE FROM sync_queue WHERE id = ?", [id]);
+        saveDB();
+        console.log(`Successfully synced offline ${action} for ${table_name} id ${record_id}`);
       }
-
-      // Add customer_name to payments if missing
-      const paymentInfo = database.exec("PRAGMA table_info('payments')");
-      if (paymentInfo.length > 0) {
-        const paymentColumns = paymentInfo[0].values.map(row => row[1] as string);
-        if (!paymentColumns.includes('customer_name')) {
-          database.run("ALTER TABLE payments ADD COLUMN customer_name TEXT");
-          // Backfill existing payments with customer name from loans table
-          database.run(`
-            UPDATE payments 
-            SET customer_name = (SELECT customer_name FROM loans WHERE loans.id = payments.loan_id)
-            WHERE customer_name IS NULL
-          `);
-        }
-      }
-    } catch (err) {
-      console.error('Migration error:', err);
     }
-
-    // Data Repair: Ensure all EMIs have created_by set correctly based on the loan creator
-    try {
-      database.run(`
-        UPDATE emis 
-        SET created_by = (SELECT created_by FROM loans WHERE loans.id = emis.loan_id) 
-        WHERE created_by IS NULL
-      `);
-    } catch (err) {
-      console.error('Data repair error:', err);
-    }
-  }
-
-async function seedData(database: Database): Promise<void> {
-  // REMOVED: Default users seeding (Admin/Staff) for "brand-new" application experience.
-  // The app will now prompt the user to register an Admin account on first startup.
-
-  // Seed gold rates
-  const rateCount = (database.exec('SELECT COUNT(*) as c FROM gold_rates')[0]?.values[0][0] as number) ?? 0;
-  if (rateCount === 0) {
-    database.run(`
-      INSERT INTO gold_rates (id, gold_type, rate_per_gram, updated_at) VALUES
-        ('1', '24K', 0, '2024-03-15'),
-        ('2', '22K', 0, '2024-03-15'),
-        ('3', '18K', 0, '2024-03-15');
-    `);
-  } else {
-    // Data Migration: Reset default rates if they match the initial seed
-    try {
-      database.run(`
-        UPDATE gold_rates 
-        SET rate_per_gram = 0 
-        WHERE rate_per_gram IN (6500, 5950, 4875) AND updated_at = '2024-03-15'
-      `);
-    } catch (err) {
-      console.error('Failed to reset default gold rates:', err);
-    }
-  }
-
-  // Seed loan types
-  const ltCount = (database.exec('SELECT COUNT(*) as c FROM loan_types')[0]?.values[0][0] as number) ?? 0;
-  if (ltCount === 0) {
-    database.run(`
-      INSERT INTO loan_types (id, name, interest_rate, min_amount, max_amount, min_tenure, max_tenure) VALUES
-        ('1', 'Standard Gold Loan', 12, 10000, 1000000, 6, 36),
-        ('2', 'Premium Gold Loan', 10, 50000, 5000000, 12, 48),
-        ('3', 'Quick Gold Loan', 15, 500, 500000, 3, 24);
-    `);
-  }
-
-  // Seed default settings
-  const settingsCount = (database.exec('SELECT COUNT(*) as c FROM settings')[0]?.values[0][0] as number) ?? 0;
-  if (settingsCount === 0) {
-    database.run(`
-      INSERT INTO settings (key, value) VALUES
-        ('shop_name', ''),
-        ('shop_upi_id', ''),
-        ('shop_address', ''),
-        ('shop_phone', '');
-    `);
+  } catch (err) {
+    console.error("Failed executing processSyncQueue loop:", err);
+  } finally {
+    isSyncing = false;
   }
 }
 
-// ─── Settings Migration ───────────────────────────────────────────────────────
-// Runs unconditionally on every startup to clear old hardcoded default values.
-function migrateSettings(database: Database): void {
-  try {
-    database.run(`
-      UPDATE settings 
-      SET value = '' 
-      WHERE (key = 'shop_name' AND value = 'Gold Loan Manager')
-         OR (key = 'shop_phone' AND value = '+91-9999999999')
-         OR (key = 'shop_address' AND value = 'Gold Loan Shop, India')
-         OR (key = 'shop_upi_id' AND value = 'goldloanshop@upi')
-    `);
-  } catch (err) {
-    console.error('Failed to reset default shop settings:', err);
-  }
+// ─── SQLITE CACHE LOADERS ────────────────────────────────────────────────────
+export function loadSQLiteToCache(): void {
+  // 1. Users
+  cachedUsers = queryRows("SELECT * FROM users ORDER BY created_at ASC").map(r => ({
+    id: r.id,
+    username: r.username,
+    name: r.name,
+    role: r.role as 'admin' | 'staff',
+    email: r.email,
+    createdAt: r.created_at
+  }));
+
+  // 2. Customers
+  cachedCustomers = queryRows("SELECT * FROM customers ORDER BY created_at DESC").map(r => ({
+    id: r.id,
+    name: r.name,
+    email: r.email,
+    phone: r.phone,
+    address: r.address,
+    kycStatus: r.kyc_status as 'pending' | 'verified' | 'rejected',
+    kycDocument: r.kyc_document,
+    kycNumber: r.kyc_number,
+    kycDocuments: r.kyc_docs_json ? JSON.parse(r.kyc_docs_json) : [],
+    createdAt: r.created_at,
+    photoUrl: r.photo_url || undefined,
+    createdBy: r.created_by || undefined
+  }));
+
+  // 3. Loans
+  cachedLoans = queryRows("SELECT * FROM loans ORDER BY start_date DESC").map(r => ({
+    id: r.id,
+    customerId: r.customer_id,
+    customerName: r.customer_name,
+    goldWeight: r.gold_weight,
+    goldType: r.gold_type as '24K' | '22K' | '18K',
+    goldValue: r.gold_value,
+    itemType: r.item_type || '',
+    loanAmount: r.loan_amount,
+    loanTypeId: r.loan_type_id,
+    loanTypeName: r.loan_type_name,
+    interestRate: r.interest_rate,
+    tenure: r.tenure,
+    startDate: r.start_date,
+    endDate: r.end_date,
+    status: r.status as any,
+    emiAmount: r.emi_amount,
+    createdBy: r.created_by || undefined,
+    branchId: r.branch_id || undefined,
+    lockerNumber: r.locker_number || undefined,
+    packetNumber: r.packet_number || undefined,
+    ornamentPhotoUrl: r.ornament_photo_url || undefined,
+    repaymentScheme: r.repayment_scheme as 'EMI' | 'BULLET',
+    penaltyRate: r.penalty_rate ?? 2
+  }));
+
+  // 4. EMIs
+  cachedEmis = queryRows("SELECT * FROM emis ORDER BY due_date ASC").map(r => ({
+    id: r.id,
+    loanId: r.loan_id,
+    customerId: r.customer_id,
+    customerName: r.customer_name,
+    emiNumber: r.emi_number,
+    dueDate: r.due_date,
+    amount: r.amount,
+    status: r.status as any,
+    paidDate: r.paid_date || undefined,
+    paidAmount: r.paid_amount || undefined,
+    paymentMethod: r.payment_method || undefined,
+    transactionRef: r.transaction_ref || undefined,
+    paymentId: r.payment_id || undefined,
+    createdBy: r.created_by || undefined,
+    penaltyRate: r.penalty_rate ?? 2
+  }));
+
+  // 5. Payments
+  cachedPayments = queryRows("SELECT * FROM payments ORDER BY payment_date ASC").map(r => ({
+    id: r.id,
+    loanId: r.loan_id,
+    paymentType: r.payment_type as any,
+    amount: r.amount,
+    paymentDate: r.payment_date,
+    principalComponent: r.principal_component,
+    interestComponent: r.interest_component,
+    penaltyComponent: r.penalty_component,
+    paymentMethod: r.payment_method || undefined,
+    transactionRef: r.transaction_ref || undefined,
+    createdBy: r.created_by || undefined,
+    createdAt: r.created_at,
+    customerName: r.customer_name || undefined
+  }));
+
+  // 6. Settings
+  cachedSettings = {};
+  queryRows("SELECT * FROM settings").forEach(r => {
+    cachedSettings[r.key] = r.value;
+  });
+
+  // 7. Gold Rates
+  cachedGoldRates = queryRows("SELECT * FROM gold_rates ORDER BY gold_type ASC").map(r => ({
+    id: r.id,
+    goldType: r.gold_type as '24K' | '22K' | '18K',
+    ratePerGram: r.rate_per_gram,
+    updatedAt: r.updated_at
+  }));
+
+  // 8. Loan Transfers
+  cachedTransfers = queryRows("SELECT * FROM loan_transfers ORDER BY transfer_date DESC").map(r => ({
+    id: r.id,
+    loanId: r.loan_id,
+    fromCustomerId: r.from_customer_id,
+    toCustomerId: r.to_customer_id,
+    fromBranch: r.from_branch || undefined,
+    toBranch: r.to_branch || undefined,
+    transferDate: r.transfer_date,
+    outstandingAmount: r.outstanding_amount,
+    reason: r.reason,
+    status: r.status as 'pending' | 'approved' | 'rejected',
+    requestedBy: r.requested_by,
+    requestedByName: r.requested_by_name,
+    approvedBy: r.approved_by || undefined,
+    approvedByName: r.approved_by_name || undefined,
+    rejectionReason: r.rejection_reason || undefined
+  }));
+
+  // 9. Activity Logs
+  cachedActivityLogs = queryRows("SELECT * FROM activity_logs ORDER BY timestamp DESC LIMIT 1000").map(r => ({
+    id: r.id,
+    userId: r.user_id,
+    userName: r.user_name,
+    userRole: r.user_role as 'admin' | 'staff',
+    activityType: r.activity_type as any,
+    description: r.description,
+    details: r.details || undefined,
+    timestamp: r.timestamp
+  }));
 }
 
-// ─── Penalty Rates Migration ──────────────────────────────────────────────────
-// Ensures penalty_rate columns exist in the loans and emis tables for existing databases.
-function migratePenaltyRates(database: Database): void {
+export async function loadSupabaseToSQLite(): Promise<void> {
+  if (!db) return;
+
+  const [
+    rUsers,
+    rCustomers,
+    rLoans,
+    rEmis,
+    rPayments,
+    rSettings,
+    rGoldRates,
+    rTransfers,
+    rLogs
+  ] = await Promise.all([
+    supabase.from('users').select('*'),
+    supabase.from('customers').select('*'),
+    supabase.from('loans').select('*'),
+    supabase.from('emis').select('*'),
+    supabase.from('payments').select('*'),
+    supabase.from('settings').select('*'),
+    supabase.from('gold_rates').select('*'),
+    supabase.from('loan_transfers').select('*'),
+    supabase.from('activity_logs').select('*').limit(1000)
+  ]);
+
+  db.run("BEGIN TRANSACTION");
   try {
-    database.exec("SELECT penalty_rate FROM loans LIMIT 1");
+    db.run("DELETE FROM users");
+    db.run("DELETE FROM customers");
+    db.run("DELETE FROM loans");
+    db.run("DELETE FROM emis");
+    db.run("DELETE FROM payments");
+    db.run("DELETE FROM settings");
+    db.run("DELETE FROM gold_rates");
+    db.run("DELETE FROM loan_transfers");
+    db.run("DELETE FROM activity_logs");
+
+    (rUsers.data || []).forEach(r => insertLocalRow('users', r, true));
+    (rCustomers.data || []).forEach(r => insertLocalRow('customers', r, true));
+    (rLoans.data || []).forEach(r => insertLocalRow('loans', r, true));
+    (rEmis.data || []).forEach(r => insertLocalRow('emis', r, true));
+    (rPayments.data || []).forEach(r => insertLocalRow('payments', r, true));
+    (rSettings.data || []).forEach(r => insertLocalRow('settings', r, true));
+    (rGoldRates.data || []).forEach(r => insertLocalRow('gold_rates', r, true));
+    (rTransfers.data || []).forEach(r => insertLocalRow('loan_transfers', r, true));
+    (rLogs.data || []).forEach(r => insertLocalRow('activity_logs', r, true));
+
+    db.run("COMMIT");
   } catch (err) {
-    console.log("Migrating loans table to add penalty_rate column...");
-    try {
-      database.run("ALTER TABLE loans ADD COLUMN penalty_rate REAL NOT NULL DEFAULT 2");
-    } catch (alterErr) {
-      console.error("Failed to alter loans table:", alterErr);
-    }
-  }
-
-  try {
-    database.exec("SELECT penalty_rate FROM emis LIMIT 1");
-  } catch (err) {
-    console.log("Migrating emis table to add penalty_rate column...");
-    try {
-      database.run("ALTER TABLE emis ADD COLUMN penalty_rate REAL NOT NULL DEFAULT 2");
-    } catch (alterErr) {
-      console.error("Failed to alter emis table:", alterErr);
-    }
-  }
-}
-
-// ─── Password migration (plaintext → SHA-256) ────────────────────────────────
-// Detects unhashed passwords (not a 64-char hex string) and re-hashes them.
-// Runs once on startup; safe to repeat (already-hashed rows are skipped).
-async function migratePasswords(database: Database): Promise<void> {
-  try {
-    const result = database.exec('SELECT id, password FROM users');
-    if (!result.length) return;
-
-    let changed = false;
-    for (const row of result[0].values) {
-      const id = row[0] as string;
-      const pwd = row[1] as string;
-      // SHA-256 hashes are exactly 64 hex characters
-      const isAlreadyHashed = /^[0-9a-f]{64}$/.test(pwd);
-      if (!isAlreadyHashed) {
-        const hashed = await hashPassword(pwd);
-        database.run('UPDATE users SET password=? WHERE id=?', [hashed, id]);
-        changed = true;
-        console.log(`Migrated password for user id=${id}`);
-      }
-    }
-    if (changed) saveDB();
-  } catch (err) {
-    console.error('Password migration error:', err);
-  }
-}
-
-// ─── Public API ───────────────────────────────────────────────────────────────
-export async function initDatabase(): Promise<Database> {
-  if (db) return db;
-
-  try {
-    let config: any = {};
-    
-    // Use Node.js fs to load WASM directly if in Electron
-    if (typeof window !== 'undefined' && (window as any).process && (window as any).require) {
-      try {
-        const fs = (window as any).require('fs');
-        const path = (window as any).require('path');
-        
-        // Get directory of index.html
-        let baseDir = window.location.pathname.replace(/\/[^\/]+$/, '');
-        // On Windows, fix the /C:/... path and slashes
-        if (process.platform === 'win32' || baseDir.includes(':')) {
-          baseDir = baseDir.replace(/^\/([A-Z]:)/i, '$1').replace(/\//g, path.sep);
-          // Handle cases where decodeURI is needed for spaces in path
-          baseDir = decodeURIComponent(baseDir);
-        }
-        
-        const wasmPath = path.join(baseDir, 'sql-wasm.wasm');
-        console.log("Loading WASM from:", wasmPath);
-        
-        const wasmBinary = fs.readFileSync(wasmPath);
-        config = { wasmBinary };
-      } catch (e: any) {
-        console.warn("Node WASM load failed, falling back to locateFile:", e);
-        config = { locateFile: (file: string) => file };
-      }
-    } else {
-      config = { locateFile: (file: string) => file };
-    }
-
-    const SQL = await initSqlJs(config);
-    SQLInstance = SQL;
-
-  // 1. Try file-based load (Electron primary)
-  let savedData = await loadFromFile();
-  
-  // 2. Fallback to IndexedDB (Web or legacy Electron)
-  if (!savedData) {
-    savedData = await loadFromIDB();
-  }
-
-  if (savedData) {
-    db = new SQL.Database(savedData);
-  } else {
-    db = new SQL.Database();
-    createSchema(db);
-    await seedData(db);
-    // Initial save to both locations
-    saveDB();
-  }
-
-  // Ensure schema exists even on existing DBs (safe with IF NOT EXISTS)
-  createSchema(db);
-
-  // Migrate old hardcoded default settings to empty strings (runs every startup)
-  migrateSettings(db);
-
-  // Migrate penalty rates (adds columns if missing)
-  migratePenaltyRates(db);
-
-  // Migrate any plaintext passwords to SHA-256 hashes
-  await migratePasswords(db);
-
-  // Auto-update overdue EMIs on startup
-  updateOverdueEMIs();
-
-    return db;
-  } catch (err: any) {
-    initError = err?.message || String(err);
-    console.error("Database initialization failed:", err);
+    db.run("ROLLBACK");
+    console.error("Failed to populate SQLite from Supabase:", err);
     throw err;
   }
+  saveDB();
+}
+
+// ─── INITIALIZATION LIFECYCLE ────────────────────────────────────────────────
+export async function initDatabase(): Promise<void> {
+  if (isInitialized) return;
+  if (isInitializing) return initPromise!;
+
+  if (!isConfigured) {
+    throw new Error('Supabase configuration parameters missing.');
+  }
+
+  isInitializing = true;
+  initPromise = (async () => {
+    try {
+      let config: any = {};
+      if (typeof window !== 'undefined' && (window as any).process && (window as any).require) {
+        try {
+          const fs = (window as any).require('fs');
+          const path = (window as any).require('path');
+          let wasmPath: string;
+
+          if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            wasmPath = path.join(process.cwd(), 'public', 'sql-wasm.wasm');
+          } else {
+            let baseDir = window.location.pathname.replace(/\/[^\/]+$/, '');
+            if (process.platform === 'win32' || baseDir.includes(':')) {
+              baseDir = baseDir.replace(/^\/([A-Z]:)/i, '$1').replace(/\//g, path.sep);
+              baseDir = decodeURIComponent(baseDir);
+            }
+            wasmPath = path.join(baseDir, 'sql-wasm.wasm');
+          }
+
+          const wasmBinary = fs.readFileSync(wasmPath);
+          config = { wasmBinary };
+        } catch (e: any) {
+          console.warn("Locating sql-wasm.wasm fallback:", e);
+          config = { locateFile: (file: string) => file };
+        }
+      } else {
+        config = { locateFile: (file: string) => file };
+      }
+
+      const SQL = await initSqlJs(config);
+      SQLInstance = SQL;
+
+      // 1. Try file-based SQLite database load (Electron userData directory)
+      let savedData = await loadFromFile();
+      // 2. Try IndexedDB database load (Web/Legacy fallback)
+      if (!savedData) {
+        savedData = await loadFromIDB();
+      }
+
+      if (savedData) {
+        db = new SQL.Database(savedData);
+      } else {
+        db = new SQL.Database();
+      }
+
+      // Ensure the SQLite schema matching Supabase structure is created
+      createSQLiteSchema(db);
+
+      const online = await isOnline();
+      if (online) {
+        console.log("Device is ONLINE. Synchronizing cloud data...");
+        // Flush queue first to avoid overwriting newer local edits
+        await processSyncQueue();
+        // Re-load SQLite from Supabase cloud snapshot
+        await loadSupabaseToSQLite();
+        // Hydrate memory cache arrays
+        loadSQLiteToCache();
+      } else {
+        console.log("Device is OFFLINE. Loading local SQLite backup...");
+        // Load straight from SQLite backup into cache arrays
+        loadSQLiteToCache();
+      }
+
+      // Seeding default configuration/settings if missing in cache
+      if (Object.keys(cachedSettings).length === 0) {
+        const defaultSettings = {
+          shop_name: 'Gold Loan Manager',
+          shop_upi_id: 'goldloanshop@upi',
+          shop_address: 'Gold Loan Shop, India',
+          shop_phone: '+91-9999999999'
+        };
+        Object.entries(defaultSettings).forEach(([key, value]) => {
+          syncWrite('settings', 'insert', key, { key, value });
+        });
+        cachedSettings = defaultSettings;
+      }
+
+      // Seeding default gold rates if missing in cache
+      if (cachedGoldRates.length === 0) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const defaultRates = [
+          { id: '1', gold_type: '24K', rate_per_gram: 6500, updated_at: todayStr },
+          { id: '2', gold_type: '22K', rate_per_gram: 5950, updated_at: todayStr },
+          { id: '3', gold_type: '18K', rate_per_gram: 4875, updated_at: todayStr }
+        ];
+        defaultRates.forEach(r => syncWrite('gold_rates', 'insert', r.id, r));
+        cachedGoldRates = defaultRates.map(r => ({
+          id: r.id,
+          goldType: r.gold_type as any,
+          ratePerGram: r.rate_per_gram,
+          updatedAt: r.updated_at
+        }));
+      }
+
+      // ─── START AUTOMATIC BACKGROUND SYNC WORKER ──────────────────────────────
+      setInterval(() => {
+        processSyncQueue().catch(console.error);
+      }, 30000); // Trigger queue check every 30 seconds
+
+      if (typeof window !== 'undefined') {
+        window.addEventListener('online', () => {
+          console.log("Network online event detected. Processing sync queue...");
+          processSyncQueue().catch(console.error);
+        });
+      }
+
+      console.log("Database initialized and loaded successfully!");
+      isInitialized = true;
+      isInitializing = false;
+    } catch (err: any) {
+      isInitializing = false;
+      initPromise = null;
+      initError = err?.message || String(err);
+      console.error("Database initialization failed:", err);
+      throw err;
+    }
+  })();
+
+  return initPromise;
 }
 
 export function getDB(): Database {
@@ -609,124 +823,100 @@ export function getDB(): Database {
   return db;
 }
 
-/**
- * Checks if an Administrator already exists in the system.
- */
 export function adminExists(): boolean {
-  try {
-    const db = getDB();
-    const result = db.exec("SELECT COUNT(*) FROM users WHERE role='admin'");
-    if (!result.length || !result[0].values.length) return false;
-    return (result[0].values[0][0] as number) > 0;
-  } catch (err) {
-    return false;
-  }
+  return cachedUsers.some(u => u.role === 'admin');
 }
 
-/**
- * Resets all application data (customers, loans, EMIs, activity logs, users, settings).
- * Acts as a factory reset.
- */
 export function resetApplicationData(): void {
   try {
-    const database = getDB();
-    database.run('DELETE FROM customers');
-    database.run('DELETE FROM loans');
-    database.run('DELETE FROM emis');
-    database.run('DELETE FROM activity_logs');
-    database.run('DELETE FROM users');
-    database.run('DELETE FROM settings');
-    saveDB();
-    console.log('Application data reset successfully.');
+    cachedUsers = [];
+    cachedCustomers = [];
+    cachedLoans = [];
+    cachedEmis = [];
+    cachedPayments = [];
+    cachedSettings = {};
+    cachedTransfers = [];
+    cachedActivityLogs = [];
+
+    if (db) {
+      db.run("DELETE FROM users");
+      db.run("DELETE FROM customers");
+      db.run("DELETE FROM loans");
+      db.run("DELETE FROM emis");
+      db.run("DELETE FROM payments");
+      db.run("DELETE FROM settings");
+      db.run("DELETE FROM gold_rates");
+      db.run("DELETE FROM loan_transfers");
+      db.run("DELETE FROM activity_logs");
+      db.run("DELETE FROM sync_queue");
+      saveDB();
+    }
+
+    Promise.all([
+      supabase.from('loan_transfers').delete().neq('id', 'placeholder'),
+      supabase.from('activity_logs').delete().neq('id', 'placeholder'),
+      supabase.from('payments').delete().neq('id', 'placeholder'),
+      supabase.from('emis').delete().neq('id', 'placeholder'),
+      supabase.from('loans').delete().neq('id', 'placeholder'),
+      supabase.from('customers').delete().neq('id', 'placeholder'),
+      supabase.from('users').delete().neq('id', 'placeholder'),
+      supabase.from('settings').delete().neq('key', 'placeholder')
+    ]).catch(err => console.error("Purging cloud data failed:", err));
+
   } catch (err) {
-    console.error('Failed to reset application data:', err);
+    console.error('Failed to execute database factory reset:', err);
     throw err;
   }
 }
 
-/**
- * Exports the current SQLite database as a downloadable file
- */
 export function exportDatabase(): void {
+  if (!db) {
+    console.error("No active database to export.");
+    return;
+  }
   try {
-    const database = getDB();
-    const data = database.export();
-    let exportData = data;
-
-    if (SQLInstance) {
-      try {
-        // Create a temporary database copy from the main data to purge the users table
-        const tempDb = new SQLInstance.Database(data);
-        tempDb.run('DELETE FROM users');
-        exportData = tempDb.export();
-        tempDb.close();
-        console.log('Successfully purged users authentication details from database backup.');
-      } catch (purgeErr) {
-        console.error('Failed to purge users table from backup:', purgeErr);
-      }
-    }
-
-    const blob = new Blob([exportData as any], { type: 'application/octet-stream' });
+    const data = db.export();
+    const blob = new Blob([data as any], { type: 'application/x-sqlite3' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `gold_loan_backup_${getSystemWorkingDate()}.db`;
+    a.download = `gold_loan_backup_${new Date().toISOString().split('T')[0]}.db`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    console.log("Database backup file downloaded successfully!");
   } catch (err) {
-    console.error('Failed to export database:', err);
+    console.error("Failed to export database:", err);
     throw err;
   }
 }
 
-/**
- * Imports a SQLite database from a Uint8Array, replacing the current db.
- * This will overwrite all existing data.
- */
-export async function importDatabase(data: Uint8Array): Promise<void> {
-  try {
-    let config: any = {};
-    if (typeof window !== 'undefined' && (window as any).process && (window as any).require) {
-      try {
-        const fs = (window as any).require('fs');
-        const path = (window as any).require('path');
-        let baseDir = window.location.pathname.replace(/\/[^\/]+$/, '');
-        if (process.platform === 'win32' || baseDir.includes(':')) {
-          baseDir = baseDir.replace(/^\/([A-Z]:)/i, '$1').replace(/\//g, path.sep);
-          baseDir = decodeURIComponent(baseDir);
-        }
-        const wasmPath = path.join(baseDir, 'sql-wasm.wasm');
-        const wasmBinary = fs.readFileSync(wasmPath);
-        config = { wasmBinary };
-      } catch (e: any) {
-        config = { locateFile: (file: string) => file };
-      }
-    } else {
-      config = { locateFile: (file: string) => file };
-    }
-
-    const SQL = await initSqlJs(config);
-    const newDb = new SQL.Database(data);
-    
-    // Close the old db if it exists
-    if (db) {
-      try { db.close(); } catch (e) {}
-    }
-    
-    // Replace the global db instance
-    db = newDb;
-    
-    // Save to persistence
-    saveDB();
-    
-    // Run migrations just in case the imported DB is an older schema
-    createSchema(db);
-    
-    console.log('Database imported and saved successfully.');
-  } catch (err) {
-    console.error('Failed to import database:', err);
-    throw new Error('Invalid database file or format.');
+export function importDatabase(data: Uint8Array): void {
+  if (!SQLInstance) {
+    throw new Error("SQL.js is not initialized. Please wait or restart the app.");
   }
+  
+  // 1. Close current DB if active
+  if (db) {
+    try {
+      db.close();
+    } catch (e) {
+      console.warn("Error closing old DB instance:", e);
+    }
+  }
+
+  // 2. Instantiate new DB using the imported Uint8Array
+  db = new SQLInstance.Database(data);
+
+  // 3. Ensure schema exists (safety fallback)
+  createSQLiteSchema(db);
+
+  // 4. Save to IndexedDB and local file
+  saveDB();
+
+  // 5. Reload cached arrays
+  loadSQLiteToCache();
+
+  console.log("Database restored successfully from imported backup!");
 }

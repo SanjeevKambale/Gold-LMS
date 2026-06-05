@@ -269,3 +269,167 @@ export function generateEMIReceipt(params: {
     savePdfToCustomerFolder(pdfBuffer, `Loan-Completed-Receipt-${params.loanId}.pdf`, params.customerName).catch(console.error);
   }
 }
+
+export function generateAuctionReceipt(params: {
+  loan: Loan;
+  auctionAmount: number;
+  auctionFees: number;
+  principalRecovered: number;
+  interestRecovered: number;
+  penaltyRecovered: number;
+  surplusReturned: number;
+  deficitWrittenOff: number;
+  paymentMethod: string;
+  transactionRef: string;
+  auctionDate: string;
+  paymentId?: string;
+}): void {
+  const doc = new jsPDF();
+
+  const settings = getAllSettings();
+  const shop_name = settings.shop_name || 'Gold Loan Manager';
+  const shop_address = settings.shop_address || 'Shop Address';
+  const shop_phone = settings.shop_phone || 'Contact Number';
+
+  const receiptNo = `REC-AUC-${params.paymentId ? params.paymentId.replace('pay_', '').toUpperCase() : `${params.loan.id.slice(-6)}-AUC`}`;
+
+  // ─── Header ───────────────────────────────────────────────────────────────
+  doc.setFillColor(220, 38, 38); // red-600
+  doc.rect(0, 0, 210, 30, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.text(shop_name, 14, 13);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`${shop_address} | ${shop_phone}`, 14, 21);
+
+  // ─── Title ────────────────────────────────────────────────────────────────
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text('GOLD COLLATERAL AUCTION RECEIPT', 14, 42);
+
+  doc.setDrawColor(220, 38, 38);
+  doc.setLineWidth(0.5);
+  doc.line(14, 44, 196, 44);
+
+  // Closed/Auctioned Stamp
+  doc.setFontSize(24);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(220, 38, 38);
+  doc.text('AUCTIONED', 196, 65, { align: 'right' });
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(80, 80, 80);
+  doc.text(`Receipt No: ${receiptNo}`, 14, 52);
+  doc.text(`Auction Date: ${new Date(params.auctionDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}`, 196, 52, { align: 'right' });
+
+  // ─── Auction Details Table ────────────────────────────────────────────────
+  autoTable(doc, {
+    startY: 72,
+    head: [['AUCTION & RECOVERY SUMMARY', '']],
+    body: [
+      ['Receipt No.', receiptNo],
+      ['Customer Name', params.loan.customerName],
+      ['Loan ID', params.loan.id],
+      ['Collateral Gold Weight', `${params.loan.goldWeight} grams (${params.loan.goldType})`],
+      ['Original Gold Value', `Rs. ${params.loan.goldValue.toLocaleString('en-IN')}`],
+      ['Gross Auction Sale Price', `Rs. ${params.auctionAmount.toLocaleString('en-IN')}`],
+      ['Auctioneer Fees / Charges', `Rs. ${params.auctionFees.toLocaleString('en-IN')}`],
+      ['Net Auction Proceeds', `Rs. ${(params.auctionAmount - params.auctionFees).toLocaleString('en-IN')}`],
+      ['Principal Component Recovered', `Rs. ${params.principalRecovered.toLocaleString('en-IN')}`],
+      ['Interest Component Recovered', `Rs. ${params.interestRecovered.toLocaleString('en-IN')}`],
+      ['Penalty Component Recovered', `Rs. ${params.penaltyRecovered.toLocaleString('en-IN')}`],
+      ['Total Recovered Amount', `Rs. ${(params.principalRecovered + params.interestRecovered + params.penaltyRecovered).toLocaleString('en-IN')}`],
+      ...(params.surplusReturned > 0 ? [['Surplus Returned to Customer', `Rs. ${params.surplusReturned.toLocaleString('en-IN')}`]] : []),
+      ...(params.deficitWrittenOff > 0 ? [['Deficit Written-Off by Shop', `Rs. ${params.deficitWrittenOff.toLocaleString('en-IN')}`]] : []),
+      ['Payment Method', params.paymentMethod.replace('_', ' ').toUpperCase()],
+      ['Transaction Ref / Certificate', params.transactionRef || '—'],
+      ['Loan Status', 'AUCTIONED & CLOSED'],
+    ],
+    headStyles: { fillColor: [220, 38, 38], textColor: [255, 255, 255], fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [254, 242, 242] },
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 75 } },
+    styles: { fontSize: 10 },
+    didParseCell: (data: any) => {
+      const rows = [
+        'Receipt No.', 'Customer Name', 'Loan ID', 'Collateral Gold Weight', 'Original Gold Value',
+        'Gross Auction Sale Price', 'Auctioneer Fees / Charges', 'Net Auction Proceeds',
+        'Principal Component Recovered', 'Interest Component Recovered', 'Penalty Component Recovered',
+        'Total Recovered Amount',
+        ...(params.surplusReturned > 0 ? ['Surplus Returned to Customer'] : []),
+        ...(params.deficitWrittenOff > 0 ? ['Deficit Written-Off by Shop'] : []),
+        'Payment Method', 'Transaction Ref / Certificate', 'Loan Status'
+      ];
+      
+      const statusRowIndex = rows.indexOf('Loan Status');
+      const surplusRowIndex = rows.indexOf('Surplus Returned to Customer');
+      const deficitRowIndex = rows.indexOf('Deficit Written-Off by Shop');
+
+      if (data.section === 'body') {
+        if (data.row.index === statusRowIndex) {
+          data.cell.styles.fillColor = [254, 242, 242]; // red-50
+          data.cell.styles.textColor = [220, 38, 38]; // red-600
+          data.cell.styles.fontStyle = 'bold';
+        } else if (surplusRowIndex !== -1 && data.row.index === surplusRowIndex) {
+          data.cell.styles.fillColor = [220, 252, 231]; // green-100
+          data.cell.styles.textColor = [21, 128, 61]; // green-700
+          data.cell.styles.fontStyle = 'bold';
+        } else if (deficitRowIndex !== -1 && data.row.index === deficitRowIndex) {
+          data.cell.styles.fillColor = [254, 226, 226]; // red-100
+          data.cell.styles.textColor = [185, 28, 28]; // red-700
+          data.cell.styles.fontStyle = 'bold';
+        }
+      }
+    }
+  });
+
+  const finalY = ((doc as any).lastAutoTable?.finalY ?? 100) + 10;
+
+  // Highlight Box
+  if (params.surplusReturned > 0) {
+    doc.setFillColor(220, 252, 231); // green-100
+    doc.roundedRect(14, finalY, 182, 18, 3, 3, 'F');
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(21, 128, 61); // green-700
+    doc.text(`Auction Surplus Returned to Customer:   Rs. ${params.surplusReturned.toLocaleString('en-IN')}`, 105, finalY + 11, { align: 'center' });
+  } else if (params.deficitWrittenOff > 0) {
+    doc.setFillColor(254, 226, 226); // red-100
+    doc.roundedRect(14, finalY, 182, 18, 3, 3, 'F');
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(185, 28, 28); // red-700
+    doc.text(`Deficit Owed / Written-Off:   Rs. ${params.deficitWrittenOff.toLocaleString('en-IN')}`, 105, finalY + 11, { align: 'center' });
+  } else {
+    doc.setFillColor(243, 244, 246); // gray-100
+    doc.roundedRect(14, finalY, 182, 18, 3, 3, 'F');
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(55, 65, 81); // gray-700
+    doc.text(`Debt fully recovered via auction. Balance: Nil.`, 105, finalY + 11, { align: 'center' });
+  }
+
+  const notesY = finalY + 26;
+  doc.setFontSize(8);
+  doc.setTextColor(100, 100, 100);
+  doc.setFont('helvetica', 'normal');
+  doc.text('This is a formal record of gold ornament auction and liquidation under loan defaults.', 14, notesY);
+  doc.text('This is a computer-generated document and is valid without a physical signature.', 14, notesY + 6);
+
+  // ─── Footer ───────────────────────────────────────────────────────────────
+  doc.setFillColor(245, 245, 245);
+  doc.rect(0, 272, 210, 25, 'F');
+  doc.setFontSize(8);
+  doc.setTextColor(120, 120, 120);
+  doc.text('Auction Recovery Record — ' + shop_name, 105, 280, { align: 'center' });
+  doc.text(`${shop_address} | ${shop_phone}`, 105, 286, { align: 'center' });
+
+  doc.save(`Auction-Receipt-${params.loan.id}.pdf`);
+
+  // Save a copy inside customer folder in Electron
+  const pdfBuffer = doc.output('arraybuffer');
+  savePdfToCustomerFolder(pdfBuffer, `Auction-Receipt-${params.loan.id}.pdf`, params.loan.customerName).catch(console.error);
+}

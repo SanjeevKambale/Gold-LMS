@@ -58,7 +58,7 @@ export interface Loan {
   tenure: number;
   startDate: string;
   endDate: string;
-  status: 'active' | 'closed' | 'defaulted' | 'completed' | 'auctioned';
+  status: 'active' | 'closed' | 'defaulted' | 'completed' | 'auctioned' | 'overdue';
   emiAmount: number;
   createdBy?: string;
   branchId?: string;

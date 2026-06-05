@@ -11,70 +11,74 @@ import {
   getMonthlyReport as dbGetMonthlyReport,
   clearLogs as dbClearLogs,
 } from './db/activityService';
+
+/**
+ * Fires off the log mutation asynchronously in the background.
+ * Signature remains synchronous so UI calls do not block.
+ */
 export const logActivity = (
   user: User,
   activityType: ActivityType,
   description: string,
   details?: string
 ): void => {
-  try {
-    dbLogActivity(user, activityType, description, details);
-  } catch {
-    // DB may not be ready on very first call; silently ignore
-  }
+  dbLogActivity(user, activityType, description, details).catch((err) => {
+    console.warn("Background logActivity failed:", err);
+  });
 };
 
-export const getActivityLogs = (): ActivityLog[] => {
+export const getActivityLogs = async (): Promise<ActivityLog[]> => {
   try {
-    return dbGetActivityLogs();
+    return await dbGetActivityLogs();
   } catch {
     return [];
   }
 };
 
-export const getActivityLogsByUser = (userId: string): ActivityLog[] => {
+export const getActivityLogsByUser = async (userId: string): Promise<ActivityLog[]> => {
   try {
-    return dbGetActivityLogsByUser(userId);
+    return await dbGetActivityLogsByUser(userId);
   } catch {
     return [];
   }
 };
 
-export const getActivityLogsByDateRange = (startDate: string, endDate: string): ActivityLog[] => {
+export const getActivityLogsByDateRange = async (startDate: string, endDate: string): Promise<ActivityLog[]> => {
   try {
-    return dbGetActivityLogsByDateRange(startDate, endDate);
+    return await dbGetActivityLogsByDateRange(startDate, endDate);
   } catch {
     return [];
   }
 };
 
-export const getActivityLogsByType = (activityType: ActivityType): ActivityLog[] => {
+export const getActivityLogsByType = async (activityType: ActivityType): Promise<ActivityLog[]> => {
   try {
-    return getActivityLogs().filter(log => log.activityType === activityType);
+    const logs = await getActivityLogs();
+    return logs.filter(log => log.activityType === activityType);
   } catch {
     return [];
   }
 };
 
-export const getMonthlyReport = (userId: string, year: number, month: number): ActivityLog[] => {
+export const getMonthlyReport = async (userId: string, year: number, month: number): Promise<ActivityLog[]> => {
   try {
-    return dbGetMonthlyReport(userId, year, month);
+    return await dbGetMonthlyReport(userId, year, month);
   } catch {
     return [];
   }
 };
 
-export const getStaffLoginHistory = (): ActivityLog[] => {
+export const getStaffLoginHistory = async (): Promise<ActivityLog[]> => {
   try {
-    return dbGetStaffLoginHistory();
+    return await dbGetStaffLoginHistory();
   } catch {
     return [];
   }
 };
 
-export const clearActivityLogs = (): void => {
+export const clearActivityLogs = async (): Promise<void> => {
   try {
-    dbClearLogs();
+    await dbClearLogs();
   } catch (err) {
     console.error("Failed to clear logs:", err);
   }

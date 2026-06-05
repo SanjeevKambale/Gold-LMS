@@ -6,6 +6,7 @@ import { generateEMIReceipt } from '../lib/pdfReceipt';
 import { getAllSettings } from '../lib/db/settingsService';
 import { getRemainingLoanBalance, calculateEMIPenalty, getEMIsByLoan } from '../lib/db/emiService';
 import { getSystemWorkingDate } from '../lib/workingDate';
+import { openExternalLink } from '../lib/fileService';
 
 interface PayEMIModalProps {
   emi: EMI;
@@ -139,15 +140,14 @@ export function PayEMIModal({ emi, onClose, onPay, customerPhone }: PayEMIModalP
                 <Download className="w-4 h-4" />
                 Download PDF Receipt
               </button>
-              <a
-                href={whatsappUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full flex items-center justify-center gap-2 py-2.5 bg-green-500 text-white rounded-none border border-black/15 font-medium hover:bg-green-600 transition-colors shadow-sm"
+              <button
+                type="button"
+                onClick={() => openExternalLink(whatsappUrl)}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-green-500 text-white rounded-none border border-black/15 font-medium hover:bg-green-600 transition-colors shadow-sm cursor-pointer"
               >
                 <Share2 className="w-4 h-4" />
                 Send via WhatsApp
-              </a>
+              </button>
               <button
                 onClick={onClose}
                 className="w-full py-2.5 text-gray-700 bg-gray-100 rounded-none border border-black/15 font-medium hover:bg-gray-200 transition-colors"

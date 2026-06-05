@@ -1,43 +1,56 @@
-import { LogIn, UserPlus, ShieldPlus } from 'lucide-react';
+import { LogIn, UserPlus, ShieldPlus, Settings as SettingsIcon } from 'lucide-react';
 import { Button } from './ui/button';
 
 interface WelcomeProps {
   onNavigate: (screen: 'login' | 'signup') => void;
   hasAdmin: boolean;
+  onOpenSettings: () => void;
 }
 
-export function Welcome({ onNavigate, hasAdmin }: WelcomeProps) {
+export function Welcome({ onNavigate, hasAdmin, onOpenSettings }: WelcomeProps) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#002147]/5 via-white to-[#d4af37]/10 flex items-center justify-center p-4 relative">
       {/* Top Navigation Buttons - Using inline styles for ironclad positioning */}
-      {hasAdmin && (
-        <nav 
-          style={{ 
-            position: 'fixed', 
-            top: '1.5rem', 
-            right: '1.5rem', 
-            display: 'flex', 
-            gap: '0.75rem', 
-            zIndex: 1000 
-          }}
-        >
-          <Button
-            onClick={() => onNavigate('login')}
-            className="btn-landing btn-landing-signin !w-auto !max-w-none px-5 h-10 text-xs font-bold shadow-lg group"
-          >
-            <LogIn className="w-4 h-4 mr-2 text-[#002147] group-hover:scale-110 transition-transform" />
-            Sign In
-          </Button>
+      <nav 
+        style={{ 
+          position: 'fixed', 
+          top: '1.5rem', 
+          right: '1.5rem', 
+          display: 'flex', 
+          alignItems: 'center',
+          gap: '0.75rem', 
+          zIndex: 1000 
+        }}
+      >
+        {hasAdmin && (
+          <>
+            <Button
+              onClick={() => onNavigate('login')}
+              className="btn-landing btn-landing-signin !w-auto !max-w-none px-5 h-10 text-xs font-bold shadow-lg group"
+            >
+              <LogIn className="w-4 h-4 mr-2 text-[#002147] group-hover:scale-110 transition-transform" />
+              Sign In
+            </Button>
 
-          <Button
-            onClick={() => onNavigate('signup')}
-            className="btn-landing btn-landing-signup !w-auto !max-w-none px-5 h-10 text-xs font-bold shadow-lg group"
-          >
-            <UserPlus className="w-4 h-4 mr-2 group-hover:scale-110 transition-transform" />
-            Sign Up
-          </Button>
-        </nav>
-      )}
+            <Button
+              onClick={() => onNavigate('signup')}
+              className="btn-landing btn-landing-signup !w-auto !max-w-none px-5 h-10 text-xs font-bold shadow-lg group"
+            >
+              <UserPlus className="w-4 h-4 mr-2 group-hover:scale-110 transition-transform" />
+              Sign Up
+            </Button>
+          </>
+        )}
+
+        <Button
+          onClick={onOpenSettings}
+          variant="outline"
+          className="btn-landing-settings !w-10 !h-10 !p-0 flex items-center justify-center bg-white hover:bg-gray-50 border border-black/15 shadow-md active:scale-95 transition-all text-gray-700"
+          title="System Settings"
+        >
+          <SettingsIcon className="w-4 h-4 text-yellow-600 hover:text-yellow-700" />
+        </Button>
+      </nav>
 
 
 

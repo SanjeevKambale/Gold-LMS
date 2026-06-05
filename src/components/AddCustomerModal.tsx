@@ -4,6 +4,8 @@ import { Customer, KYCDocument } from '../types';
 import { saveUploadedFile, openLocalFile } from '../lib/fileService';
 import { getAllCustomers } from '../lib/db/customerService';
 import { getSystemWorkingDate } from '../lib/workingDate';
+import { CameraCaptureModal } from './CameraCaptureModal';
+import { compressImage } from '../lib/imageCompressor';
 
 interface AddCustomerModalProps {
   onClose: () => void;
@@ -41,14 +43,17 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
 
+  const [showFaceCamera, setShowFaceCamera] = useState(false);
+
   const handlePhotoChange = async (file: File | null) => {
     if (!file) return;
     
     setIsUploadingPhoto(true);
     try {
-      const filePath = await saveUploadedFile(file, (formData.name || 'temporary_customer') + '_photo');
+      const compressed = await compressImage(file, 1200, 0.75);
+      const filePath = await saveUploadedFile(compressed, (formData.name || 'temporary_customer') + '_photo');
       setCustomerPhotoUrl(filePath);
-      setCustomerPhotoFileName(file.name);
+      setCustomerPhotoFileName(compressed.name);
     } catch (err) {
       console.error('Photo upload failed:', err);
     } finally {
@@ -116,16 +121,29 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
   const handleFileChange = async (id: string, file: File | null) => {
     if (!file) return;
     
+    setErrorMessage(null);
+
+    // Enforce 2MB size limit for PDF documents
+    if (file.type.includes('pdf') && file.size > 2 * 1024 * 1024) {
+      setErrorMessage("Document file size exceeds the 2MB limit! Please upload a compressed PDF or scan at a lower DPI.");
+      return;
+    }
+    
     setIsUploading(true);
     try {
-      const filePath = await saveUploadedFile(file, formData.name || 'temporary_customer');
+      let finalFile = file;
+      if (file.type.startsWith('image/')) {
+        finalFile = await compressImage(file, 1200, 0.75);
+      }
+      const filePath = await saveUploadedFile(finalFile, formData.name || 'temporary_customer');
       handleUpdateDocFields(id, {
         fileUrl: filePath,
-        fileName: file.name,
-        fileType: file.type.includes('pdf') ? 'pdf' : 'image'
+        fileName: finalFile.name,
+        fileType: finalFile.type.includes('pdf') ? 'pdf' : 'image'
       });
     } catch (err) {
       console.error('Upload failed:', err);
+      setErrorMessage("File upload failed. Please try again.");
     } finally {
       setIsUploading(false);
     }
@@ -187,8 +205,9 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-none border border-black/15 max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+    <>
+      <div className={`fixed inset-0 bg-black flex ${showFaceCamera ? 'flex-col lg:flex-row items-center justify-center gap-6 overflow-y-auto' : 'items-center justify-center'} z-50 p-4`}>
+        <div className="bg-white rounded-none border border-black/15 max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
         <div className="sticky top-0 bg-white border-b border-black/15 px-4 md:px-6 py-3 md:py-4 flex items-center justify-between z-10">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-yellow-100 rounded-none border border-black/15 flex items-center justify-center text-yellow-600">
@@ -296,28 +315,41 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
                     className="hidden"
                     accept="image/*"
                   />
-                  <button
-                    type="button"
-                    onClick={() => photoInputRef.current?.click()}
-                    disabled={isUploadingPhoto}
-                    className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-none border border-black/15 transition-all border-2 border-dashed w-full sm:w-auto justify-center ${
-                      customerPhotoUrl 
-                        ? 'border-black/15 bg-green-50 text-green-700' 
-                        : 'border-black/15 bg-white text-gray-500 hover:border-black/15 hover:bg-yellow-50'
-                    }`}
-                  >
-                    {customerPhotoUrl ? (
-                      <>
-                        <Check className="w-4 h-4" />
-                        Photo Uploaded
-                      </>
-                    ) : (
-                      <>
-                        <Camera className="w-4 h-4" />
-                        {isUploadingPhoto ? 'Uploading...' : 'Upload Customer Photo'}
-                      </>
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={() => photoInputRef.current?.click()}
+                      disabled={isUploadingPhoto}
+                      className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-none border border-black/15 transition-all border-2 border-dashed flex-1 sm:flex-initial justify-center ${
+                        customerPhotoUrl 
+                          ? 'border-black/15 bg-green-50 text-green-700' 
+                          : 'border-black/15 bg-white text-gray-500 hover:border-black/15 hover:bg-yellow-50'
+                      }`}
+                    >
+                      {customerPhotoUrl ? (
+                        <>
+                          <Check className="w-4 h-4" />
+                          Photo Uploaded
+                        </>
+                      ) : (
+                        <>
+                          <Camera className="w-4 h-4" />
+                          {isUploadingPhoto ? 'Uploading...' : 'Upload Customer Photo'}
+                        </>
+                      )}
+                    </button>
+                    {!customerPhotoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setShowFaceCamera(true)}
+                        className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-none border border-black/15 bg-yellow-50 text-yellow-600 hover:bg-yellow-100 transition-all justify-center"
+                        title="Capture Live Face"
+                      >
+                        <Camera className="w-4 h-4 animate-pulse" />
+                        Capture Live
+                      </button>
                     )}
-                  </button>
+                  </div>
                   {customerPhotoFileName && (
                     <div className="flex items-center gap-2 text-xs text-gray-400 bg-white px-3 py-1.5 rounded-none border border-black/15">
                       <LinkIcon className="w-3 h-3" />
@@ -441,28 +473,30 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
                       className="hidden"
                       accept=".pdf,image/*"
                     />
-                    <button
-                      type="button"
-                      onClick={() => fileInputRefs.current[doc.id!]?.click()}
-                      disabled={isUploading}
-                      className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-none border border-black/15 transition-all border-2 border-dashed w-full sm:w-auto justify-center ${
-                        doc.fileUrl 
-                          ? 'border-black/15 bg-green-50 text-green-700' 
-                          : 'border-black/15 bg-white text-gray-500 hover:border-black/15 hover:bg-yellow-50'
-                      }`}
-                    >
-                      {doc.fileUrl ? (
-                        <>
-                          <Check className="w-4 h-4" />
-                          File Uploaded
-                        </>
-                      ) : (
-                        <>
-                          <Camera className="w-4 h-4" />
-                          {isUploading ? 'Uploading...' : 'Upload Photo/PDF'}
-                        </>
-                      )}
-                    </button>
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRefs.current[doc.id!]?.click()}
+                        disabled={isUploading}
+                        className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-none border border-black/15 transition-all border-2 border-dashed flex-1 sm:flex-initial justify-center ${
+                          doc.fileUrl 
+                            ? 'border-black/15 bg-green-50 text-green-700' 
+                            : 'border-black/15 bg-white text-gray-500 hover:border-black/15 hover:bg-yellow-50'
+                        }`}
+                      >
+                        {doc.fileUrl ? (
+                          <>
+                            <Check className="w-4 h-4" />
+                            File Uploaded
+                          </>
+                        ) : (
+                          <>
+                            <Camera className="w-4 h-4" />
+                            {isUploading ? 'Uploading...' : 'Upload Photo/PDF'}
+                          </>
+                        )}
+                      </button>
+                    </div>
                     {doc.fileName && (
                       <div className="flex items-center gap-2 text-xs text-gray-400 bg-white px-3 py-1.5 rounded-none border border-black/15">
                         <LinkIcon className="w-3 h-3" />
@@ -518,6 +552,16 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
           </div>
         </form>
       </div>
+
+      {showFaceCamera && (
+        <CameraCaptureModal
+          title="Capture Customer Face"
+          isEmbedded={true}
+          onClose={() => setShowFaceCamera(false)}
+          onCapture={(file) => handlePhotoChange(file)}
+        />
+      )}
     </div>
-  );
+  </>
+);
 }

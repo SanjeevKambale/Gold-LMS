@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Search, Eye, FileText, Trash2, AlertTriangle, X, CreditCard, TrendingDown, Send, TrendingUp, Clock, Scale, Download, Calendar, CheckCircle, XCircle, History, Camera } from 'lucide-react';
+import { Plus, Search, Eye, FileText, Trash2, AlertTriangle, X, CreditCard, TrendingDown, Send, TrendingUp, Clock, Scale, Download, Calendar, CheckCircle, XCircle, History, Camera, ShieldAlert } from 'lucide-react';
 import { Loan, EMI, User, LoanTransfer } from '../types';
 import { getAllLoans, addLoan as dbAddLoan, deleteLoan as dbDeleteLoan } from '../lib/db/loanService';
 import { addEMIs } from '../lib/db/emiService';
@@ -9,6 +9,7 @@ import { EarlyClosureModal } from './EarlyClosureModal';
 import { LoanTransferModal } from './LoanTransferModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { BulletLoanLedger } from './BulletLoanLedger';
+import { OverdueSettlementModal } from './OverdueSettlementModal';
 import { generateLoanReceipt } from '../lib/pdfReceipt';
 import { logActivity } from '../lib/activityLogger';
 
@@ -41,7 +42,7 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
     } catch { return []; }
   });
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'closed' | 'defaulted' | 'completed'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'closed' | 'defaulted' | 'completed' | 'auctioned'>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [discardLoan, setDiscardLoan] = useState<Loan | null>(null);
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
@@ -49,6 +50,8 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
   const [transferLoan, setTransferLoan] = useState<Loan | null>(null);
   const [showOrnamentImage, setShowOrnamentImage] = useState<string | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [settlementLoan, setSettlementLoan] = useState<Loan | null>(null);
+  const [renewalPrefill, setRenewalPrefill] = useState<Partial<Loan> | undefined>(undefined);
 
 
 
@@ -112,6 +115,8 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
         return 'bg-red-100 text-red-800';
       case 'completed':
         return 'bg-blue-100 text-blue-800';
+      case 'auctioned':
+        return 'bg-orange-100 text-orange-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
@@ -230,7 +235,7 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
             />
           </div>
           <div className="flex gap-2 overflow-x-auto pb-2 -mx-2 px-2 scrollbar-hide">
-            {['all', 'active', 'completed', 'closed', 'defaulted'].map((status) => (
+            {['all', 'active', 'completed', 'closed', 'defaulted', 'auctioned'].map((status) => (
               <button
                 key={status}
                 onClick={() => setFilterStatus(status as any)}
@@ -330,6 +335,15 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
                           <Send className="w-5 h-5" />
                         </button>
                       )}
+                      {(loan.status === 'active' || loan.status === 'defaulted') && (
+                        <button
+                          onClick={() => setSettlementLoan(loan)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-none border border-black/15 transition-all hover:scale-110"
+                          title="Settle / Recover Overdue Loan"
+                        >
+                          <ShieldAlert className="w-5 h-5" />
+                        </button>
+                      )}
                       {(loan.status === 'active' || loan.status === 'completed') && (
                         <button
                           onClick={() => setDiscardLoan(loan)}
@@ -351,8 +365,15 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
       {showCreateModal && (
         <CreateLoanModal
           currentUser={currentUser}
-          onClose={() => setShowCreateModal(false)}
-          onCreate={handleCreateLoan}
+          prefillTemplate={renewalPrefill}
+          onClose={() => {
+            setShowCreateModal(false);
+            setRenewalPrefill(undefined);
+          }}
+          onCreate={(loan) => {
+            handleCreateLoan(loan);
+            setRenewalPrefill(undefined);
+          }}
         />
       )}
 
@@ -469,7 +490,7 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
                       </div>
                       <div>
                         <p className="text-xs text-gray-500">Penalty Rate</p>
-                        <p className="text-sm font-medium text-gray-900">{selectedLoan.penaltyRate ?? 2}%/mo</p>
+                        <p className="text-sm font-medium text-gray-900">{selectedLoan.penaltyRate ?? 2}%/mo (daily pro-rata)</p>
                       </div>
                       <div>
                         <p className="text-xs text-gray-500">Tenure</p>
@@ -631,6 +652,17 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
                   Early Closure
                 </button>
               )}
+              {(selectedLoan.status === 'active' || selectedLoan.status === 'defaulted') && (
+                <button
+                  onClick={() => {
+                    setSettlementLoan(selectedLoan);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-none border border-black/15 text-sm font-semibold transition-colors shadow-sm"
+                >
+                  <ShieldAlert className="w-4 h-4" />
+                  Settle / Recover Dues
+                </button>
+              )}
               <button
                 onClick={() => setSelectedLoan(null)}
                 className="ml-auto px-6 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-none border border-black/15 transition-colors text-sm font-medium"
@@ -656,6 +688,22 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
           onSuccess={() => {
             setTransferLoan(null);
             refreshLoans();
+          }}
+        />
+      )}
+      {settlementLoan && (
+        <OverdueSettlementModal
+          loan={settlementLoan}
+          currentUser={currentUser}
+          onClose={() => setSettlementLoan(null)}
+          onSuccess={() => {
+            setSettlementLoan(null);
+            setSelectedLoan(null);
+            refreshLoans();
+          }}
+          onInitiateRenewalLoanCreation={(template) => {
+            setRenewalPrefill(template);
+            setShowCreateModal(true);
           }}
         />
       )}

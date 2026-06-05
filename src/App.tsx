@@ -13,7 +13,8 @@ import {
   IndianRupee,
   Send,
   Lock,
-  Calendar
+  Calendar,
+  Gavel
 } from 'lucide-react';
 import { getSystemWorkingDate, isSystemBackdated, setSystemWorkingDate } from './lib/workingDate';
 import { User, ActivityLog } from './types';
@@ -29,7 +30,9 @@ import { Login } from './components/Login';
 import { SignUp } from './components/SignUp';
 import { ForgotPassword } from './components/ForgotPassword';
 import { Welcome } from './components/Welcome';
+import { AuctionManagement } from './components/AuctionManagement';
 import { initDatabase, adminExists } from './lib/database';
+import { getSystemTheme } from './lib/db/settingsService';
 import { getUserFromStorage, clearUserFromStorage } from './lib/auth';
 import { getAllUsers } from './lib/db/authService';
 import { logActivity } from './lib/activityLogger';
@@ -40,13 +43,14 @@ import { BrandLogo } from './components/BrandLogo';
 import { AdminVerificationModal } from './components/AdminVerificationModal';
 import { SystemLockModal } from './components/SystemLockModal';
 import { StaffVerificationModal } from './components/StaffVerificationModal';
+import { PreLoginSettingsModal } from './components/PreLoginSettingsModal';
 
-type TabType = 'dashboard' | 'customers' | 'loans' | 'transfers' | 'emi' | 'rates' | 'reports' | 'settings';
+type TabType = 'dashboard' | 'customers' | 'loans' | 'transfers' | 'emi' | 'auctions' | 'rates' | 'reports' | 'settings';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     const hash = window.location.hash.replace('#', '') as TabType;
-    const validTabs: TabType[] = ['dashboard', 'customers', 'loans', 'transfers', 'emi', 'rates', 'reports'];
+    const validTabs: TabType[] = ['dashboard', 'customers', 'loans', 'transfers', 'emi', 'auctions', 'rates', 'reports'];
     return validTabs.includes(hash) ? hash : 'dashboard';
   });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -66,6 +70,7 @@ export default function App() {
   const [workingDate, setWorkingDate] = useState(() => getSystemWorkingDate());
   const [isBackdatingModalOpen, setIsBackdatingModalOpen] = useState(false);
   const [tempWorkingDate, setTempWorkingDate] = useState(workingDate);
+  const [showPreLoginSettings, setShowPreLoginSettings] = useState(false);
 
   // Sync lock state to localStorage
   useEffect(() => {
@@ -87,12 +92,12 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentUser]);
 
-  const handleToggleStaffSelector = () => {
+  const handleToggleStaffSelector = async () => {
     const newState = !isStaffSelectorOpen;
     setIsStaffSelectorOpen(newState);
     if (newState) {
       try {
-        const users = getAllUsers();
+        const users = await getAllUsers();
         setStaffList(users.filter(u => u.role === 'staff'));
       } catch (err) {
         console.error('Error fetching staff list:', err);
@@ -104,16 +109,23 @@ export default function App() {
   useEffect(() => {
     const init = async () => {
       try {
-        await initDatabase();
-        const exists = adminExists();
+        const exists = await adminExists();
         setHasAdmin(exists);
+        
+        // Load and apply system color theme
+        try {
+          const savedTheme = await getSystemTheme();
+          document.documentElement.setAttribute('data-theme', savedTheme || 'gold');
+        } catch (themeErr) {
+          console.warn("Theme loader error:", themeErr);
+        }
         
         const savedUser = getUserFromStorage();
         if (savedUser) {
           setCurrentUser(savedUser);
           setViewMode(savedUser.role);
           const hash = window.location.hash.replace('#', '') as TabType;
-          const validTabs: TabType[] = ['dashboard', 'customers', 'loans', 'transfers', 'emi', 'rates', 'reports', 'settings'];
+          const validTabs: TabType[] = ['dashboard', 'customers', 'loans', 'transfers', 'emi', 'auctions', 'rates', 'reports', 'settings'];
           if (!validTabs.includes(hash) || (hash === 'settings' && savedUser.role !== 'admin')) {
             const defaultTab = 'dashboard';
             setActiveTab(defaultTab);
@@ -138,7 +150,7 @@ export default function App() {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '') as TabType;
-      const validTabs: TabType[] = ['dashboard', 'customers', 'loans', 'transfers', 'emi', 'rates', 'reports', 'settings'];
+      const validTabs: TabType[] = ['dashboard', 'customers', 'loans', 'transfers', 'emi', 'auctions', 'rates', 'reports', 'settings'];
       
       if (validTabs.includes(hash)) {
         const effectiveRole = currentUser?.role === 'admin' ? viewMode : 'staff';
@@ -216,9 +228,10 @@ export default function App() {
   }
 
   if (!currentUser) {
+    let preLoginView;
     switch (authScreen) {
       case 'login':
-        return (
+        preLoginView = (
           <Login 
             onLoginSuccess={handleLoginSuccess} 
             onSwitchToSignUp={() => setAuthScreen('signup')} 
@@ -226,23 +239,54 @@ export default function App() {
             onBack={() => setAuthScreen('welcome')}
           />
         );
+        break;
       case 'signup':
-        return (
+        preLoginView = (
           <SignUp 
             onSignUpSuccess={handleSignUpSuccess} 
             onSwitchToLogin={() => setAuthScreen('login')} 
             onBack={() => setAuthScreen('welcome')}
           />
         );
+        break;
       case 'forgot-password':
-        return (
+        preLoginView = (
           <ForgotPassword 
             onBackToLogin={() => setAuthScreen('login')} 
           />
         );
+        break;
       default:
-        return <Welcome onNavigate={(screen) => setAuthScreen(screen)} hasAdmin={hasAdmin} />;
+        preLoginView = (
+          <Welcome 
+            onNavigate={(screen) => setAuthScreen(screen)} 
+            hasAdmin={hasAdmin} 
+            onOpenSettings={() => setShowPreLoginSettings(true)}
+          />
+        );
     }
+
+    return (
+      <>
+        {preLoginView}
+        {showPreLoginSettings && (
+          <PreLoginSettingsModal
+            onClose={() => setShowPreLoginSettings(false)}
+            onDataResetOrImport={async () => {
+              const exists = await adminExists();
+              setHasAdmin(exists);
+              // Refresh root theme
+              try {
+                const savedTheme = await getSystemTheme();
+                document.documentElement.setAttribute('data-theme', savedTheme || 'gold');
+              } catch (err) {
+                console.warn(err);
+              }
+            }}
+          />
+        )}
+      </>
+    );
   }
 
   const staffTabs = [
@@ -251,6 +295,7 @@ export default function App() {
     { id: 'loans', label: 'Gold Loans', icon: IndianRupee },
     { id: 'transfers', label: 'Loan Transfers', icon: Send },
     { id: 'emi', label: 'EMI Tracking', icon: CreditCard },
+    { id: 'auctions', label: 'Auctions', icon: Gavel },
   ];
 
   const adminTabs = [
@@ -259,6 +304,7 @@ export default function App() {
     { id: 'loans', label: 'Gold Loans', icon: IndianRupee },
     { id: 'transfers', label: 'Loan Transfers', icon: Send },
     { id: 'emi', label: 'EMI Tracking', icon: CreditCard },
+    { id: 'auctions', label: 'Auctions', icon: Gavel },
     { id: 'rates', label: 'Gold Rates', icon: TrendingUp },
     { id: 'reports', label: 'Reports', icon: Activity },
     { id: 'settings', label: 'Settings', icon: SettingsIcon },
@@ -495,6 +541,7 @@ export default function App() {
             {activeTab === 'loans' && <LoanManagement currentUser={effectiveUser} />}
             {activeTab === 'transfers' && <LoanTransferManagement currentUser={effectiveUser} />}
             {activeTab === 'emi' && <EMIManagement currentUser={effectiveUser} />}
+            {activeTab === 'auctions' && <AuctionManagement currentUser={effectiveUser} />}
             {activeTab === 'rates' && effectiveRole === 'admin' && <GoldRateManagement currentUser={effectiveUser} />}
             {activeTab === 'reports' && effectiveRole === 'admin' && <StaffReports currentUser={effectiveUser} />}
             {activeTab === 'settings' && effectiveRole === 'admin' && <Settings currentUser={effectiveUser} onLogout={handleLogout} />}

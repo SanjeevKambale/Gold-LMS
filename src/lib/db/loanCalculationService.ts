@@ -22,7 +22,10 @@ export function calculateInterestForDays(principal: number, ratePerYear: number,
   return (principal * ratePerYear * (days / 365)) / 100;
 }
 
-export function calculateBulletLoanBalances(loan: Loan, asOfDateStr: string = getSystemWorkingDate()): LoanBalances {
+export function calculateBulletLoanBalances(
+  loan: Loan,
+  asOfDateStr: string = getSystemWorkingDate()
+): LoanBalances {
   const payments = getPaymentsByLoan(loan.id);
   
   let currentPrincipal = loan.loanAmount;

@@ -1,38 +1,16 @@
 import { ActivityLog, ActivityType, User } from '../../types';
-import { getDB, saveDB } from '../database';
+import { supabase } from '../supabaseClient';
+import { cachedActivityLogs, syncWrite, getDB, saveDB } from '../database';
 
-const ACTIVITY_LOG_LIMIT = 1000;
-
-function rowToActivityLog(row: any[]): ActivityLog {
-  return {
-    id: row[0] as string,
-    userId: row[1] as string,
-    userName: row[2] as string,
-    userRole: row[3] as 'admin' | 'staff',
-    activityType: row[4] as ActivityType,
-    description: row[5] as string,
-    details: row[6] as string | undefined,
-    timestamp: row[7] as string,
-  };
-}
-
-export function logActivity(
+export async function logActivity(
   user: User,
   activityType: ActivityType,
   description: string,
   details?: string
-): ActivityLog {
+): Promise<ActivityLog> {
   const timestamp = new Date().toISOString();
   const id = `activity_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  const db = getDB();
-  db.run(
-    `INSERT INTO activity_logs (id, user_id, user_name, user_role, activity_type, description, details, timestamp)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, user.id, user.name, user.role, activityType, description, details ?? null, timestamp]
-  );
-  saveDB();
-
-  return {
+  const logRow: ActivityLog = {
     id,
     userId: user.id,
     userName: user.name,
@@ -42,70 +20,72 @@ export function logActivity(
     details,
     timestamp,
   };
+
+  // 1. Sync to cache synchronously (prepend to show latest first)
+  cachedActivityLogs.unshift(logRow);
+
+  // 2. Sync locally and to Supabase
+  const payload = {
+    id,
+    user_id: user.id,
+    user_name: user.name,
+    user_role: user.role,
+    activity_type: activityType,
+    description,
+    details: details || null,
+    timestamp,
+  };
+  syncWrite('activity_logs', 'insert', id, payload);
+
+  return logRow;
 }
 
 export function getActivityLogs(): ActivityLog[] {
-  const db = getDB();
-  const result = db.exec(
-    `SELECT id, user_id, user_name, user_role, activity_type, description, details, timestamp FROM activity_logs ORDER BY timestamp DESC LIMIT ${ACTIVITY_LOG_LIMIT}`
-  );
-  if (!result.length) return [];
-  return result[0].values.map(rowToActivityLog);
+  return cachedActivityLogs;
 }
 
 export function getActivityLogsByUser(userId: string): ActivityLog[] {
-  const db = getDB();
-  const result = db.exec(
-    'SELECT id, user_id, user_name, user_role, activity_type, description, details, timestamp FROM activity_logs WHERE user_id=? ORDER BY timestamp DESC',
-    [userId]
-  );
-  if (!result.length) return [];
-  return result[0].values.map(rowToActivityLog);
+  return cachedActivityLogs.filter(log => log.userId === userId);
 }
 
 export function getActivityLogsByDateRange(startDate: string, endDate: string): ActivityLog[] {
-  const db = getDB();
-  // Strip any existing time portion before appending end-of-day time (#8 fix)
   const safeEnd = endDate.split('T')[0] + 'T23:59:59.999Z';
-  const result = db.exec(
-    `SELECT id, user_id, user_name, user_role, activity_type, description, details, timestamp
-     FROM activity_logs
-     WHERE timestamp >= ? AND timestamp <= ?
-     ORDER BY timestamp DESC`,
-    [startDate, safeEnd]
-  );
-  if (!result.length) return [];
-  return result[0].values.map(rowToActivityLog);
+  return cachedActivityLogs.filter(log => log.timestamp >= startDate && log.timestamp <= safeEnd);
 }
 
 export function getStaffLoginHistory(): ActivityLog[] {
-  const db = getDB();
-  const result = db.exec(
-    `SELECT id, user_id, user_name, user_role, activity_type, description, details, timestamp
-     FROM activity_logs
-     WHERE (activity_type='login' OR activity_type='logout') AND user_role='staff'
-     ORDER BY timestamp DESC`
+  return cachedActivityLogs.filter(log => 
+    (log.activityType === 'login' || log.activityType === 'logout') && log.userRole === 'staff'
   );
-  if (!result.length) return [];
-  return result[0].values.map(rowToActivityLog);
 }
 
 export function getMonthlyReport(userId: string, year: number, month: number): ActivityLog[] {
   const start = new Date(year, month - 1, 1).toISOString();
   const end = new Date(year, month, 0, 23, 59, 59).toISOString();
-  const db = getDB();
-  const result = db.exec(
-    `SELECT id, user_id, user_name, user_role, activity_type, description, details, timestamp
-     FROM activity_logs
-     WHERE user_id=? AND timestamp >= ? AND timestamp <= ?
-     ORDER BY timestamp DESC`,
-    [userId, start, end]
+  return cachedActivityLogs.filter(log => 
+    log.userId === userId && log.timestamp >= start && log.timestamp <= end
   );
-  if (!result.length) return [];
-  return result[0].values.map(rowToActivityLog);
 }
-export function clearLogs(): void {
-  const db = getDB();
-  db.run('DELETE FROM activity_logs');
-  saveDB();
+
+export async function clearLogs(): Promise<void> {
+  // 1. Clear cache synchronously
+  cachedActivityLogs.length = 0;
+
+  // 2. Clear SQLite locally
+  try {
+    const localDb = getDB();
+    localDb.run("DELETE FROM activity_logs");
+    saveDB();
+  } catch (err) {
+    console.error("Failed to clear local SQLite activity logs:", err);
+  }
+
+  // 3. Delete in Supabase in background
+  supabase
+    .from('activity_logs')
+    .delete()
+    .neq('id', 'placeholder')
+    .then(({ error }) => {
+      if (error) console.error('Failed to clear logs in Supabase background:', error.message);
+    });
 }

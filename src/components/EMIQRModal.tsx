@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { X, Download, QrCode, Share2, Info } from 'lucide-react';
 import { EMI } from '../types';
 import { getAllSettings } from '../lib/db/settingsService';
+import { openExternalLink } from '../lib/fileService';
 
 // @ts-expect-error - qrcode types not installed
 import QRCode from 'qrcode';
@@ -133,15 +134,14 @@ export function EMIQRModal({ emi, onClose, customerPhone }: EMIQRModalProps) {
             <Download className="w-4 h-4" />
             Download
           </button>
-          <a
-            href={whatsappUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-2 py-2.5 bg-green-500 text-white rounded-none border border-black/15 font-medium hover:bg-green-600 transition-colors text-sm shadow-sm"
+          <button
+            type="button"
+            onClick={() => openExternalLink(whatsappUrl)}
+            className="flex items-center justify-center gap-2 py-2.5 bg-green-500 text-white rounded-none border border-black/15 font-medium hover:bg-green-600 transition-colors text-sm shadow-sm cursor-pointer"
           >
             <Share2 className="w-4 h-4" />
             WhatsApp
-          </a>
+          </button>
         </div>
       </div>
     </div>

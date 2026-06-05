@@ -112,3 +112,26 @@ export async function savePdfToCustomerFolder(pdfBuffer: ArrayBuffer, filename: 
   }
   return null;
 }
+
+export function openExternalLink(url: string): void {
+  const isElectron = typeof window !== 'undefined' && 
+                    (window as any).process && 
+                    (window as any).require;
+
+  if (isElectron) {
+    try {
+      const electron = (window as any).require('electron');
+      const shell = electron.shell;
+      if (shell && shell.openExternal) {
+        shell.openExternal(url);
+        return;
+      }
+    } catch (err) {
+      console.error('Failed to open external link in Electron:', err);
+    }
+  }
+  
+  // Web fallback
+  window.open(url, '_blank');
+}
+

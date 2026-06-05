@@ -1,7 +1,8 @@
 import { User } from '../../types';
-import { getDB, saveDB } from '../database';
+import { supabase } from '../supabaseClient';
+import { cachedUsers, syncWrite, isOnline, queryRows } from '../database';
 
-// ─── Password hashing (SHA-256 via Web Crypto API) ────────────────────────────
+// ─── Password Hashing (SHA-256 via Web Crypto API) ────────────────────────────
 export async function hashPassword(password: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(password);
@@ -11,26 +12,57 @@ export async function hashPassword(password: string): Promise<string> {
     .join('');
 }
 
-function rowToUser(row: any[]): User {
-  return {
-    id: row[0] as string,
-    username: row[1] as string,
-    name: row[3] as string,
-    role: row[4] as 'admin' | 'staff',
-    email: row[5] as string,
-    createdAt: row[6] as string,
-  };
-}
+// ─── User Authentication & Registration ───
 
 export async function authenticateUser(username: string, password: string): Promise<User | null> {
-  const db = getDB();
-  const hashed = await hashPassword(password);
-  const result = db.exec(
-    'SELECT id, username, password, name, role, email, created_at FROM users WHERE username=? AND password=?',
-    [username, hashed]
-  );
-  if (!result.length || !result[0].values.length) return null;
-  return rowToUser(result[0].values[0]);
+  try {
+    const hashed = await hashPassword(password);
+    const online = await isOnline();
+
+    if (online) {
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, username, name, role, email, created_at')
+        .eq('username', username)
+        .eq('password', hashed)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Authentication query failed:', error);
+        return null;
+      }
+      
+      if (!data) return null;
+      
+      return {
+        id: data.id,
+        username: data.username,
+        name: data.name,
+        role: data.role as 'admin' | 'staff',
+        email: data.email,
+        createdAt: data.created_at,
+      };
+    } else {
+      // Offline mode: query credentials directly from local SQLite
+      const rows = queryRows(
+        "SELECT id, username, name, role, email, created_at FROM users WHERE username = ? AND password = ?",
+        [username, hashed]
+      );
+      if (rows.length === 0) return null;
+      const data = rows[0];
+      return {
+        id: data.id,
+        username: data.username,
+        name: data.name,
+        role: data.role as 'admin' | 'staff',
+        email: data.email,
+        createdAt: data.created_at
+      };
+    }
+  } catch (err) {
+    console.error('Authentication exception:', err);
+    return null;
+  }
 }
 
 export async function registerUser(
@@ -40,57 +72,83 @@ export async function registerUser(
   email: string,
   role: 'admin' | 'staff'
 ): Promise<User | null> {
-  const db = getDB();
-  // Check if username already exists
-  const existing = db.exec('SELECT id FROM users WHERE username=?', [username]);
-  if (existing.length && existing[0].values.length) return null;
+  try {
+    // 1. Check if the username is already registered in the system (check cache first!)
+    const usernameTaken = cachedUsers.some(u => u.username.toLowerCase() === username.toLowerCase());
+    if (usernameTaken) {
+      console.warn(`Registration rejected: Username "${username}" is already taken.`);
+      return null;
+    }
 
-  const id = crypto.randomUUID();
-  const hashed = await hashPassword(password);
-  const createdAt = new Date().toISOString().split('T')[0];
-  db.run(
-    'INSERT INTO users (id, username, password, name, role, email, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [id, username, hashed, name, role, email, createdAt]
-  );
-  saveDB();
+    const id = crypto.randomUUID();
+    const hashed = await hashPassword(password);
+    const createdAt = new Date().toISOString().split('T')[0];
+    const newUser: User = { id, username, name, role, email, createdAt };
 
-  return { id, username, name, role, email, createdAt };
+    // 2. Add to cache synchronously
+    cachedUsers.push(newUser);
+
+    // 3. Sync locally and to Supabase
+    const payload = {
+      id,
+      username,
+      password: hashed,
+      name,
+      role,
+      email,
+      created_at: createdAt
+    };
+    syncWrite('users', 'insert', id, payload);
+
+    return newUser;
+  } catch (err) {
+    console.error('Registration exception:', err);
+    return null;
+  }
 }
 
 export function getAllUsers(): User[] {
-  const db = getDB();
-  const result = db.exec(
-    'SELECT id, username, password, name, role, email, created_at FROM users ORDER BY created_at ASC'
-  );
-  if (!result.length) return [];
-  return result[0].values.map(rowToUser);
+  return cachedUsers;
 }
+
 export function deleteUser(id: string): void {
-  const db = getDB();
-  db.run('DELETE FROM users WHERE id=?', [id]);
-  saveDB();
+  // 1. Remove from cache synchronously
+  const idx = cachedUsers.findIndex(u => u.id === id);
+  if (idx !== -1) {
+    cachedUsers.splice(idx, 1);
+  }
+
+  // 2. Sync deletion to Supabase and SQLite
+  syncWrite('users', 'delete', id);
 }
 
 /**
- * Looks up a user by username and verifies the email matches.
- * Returns the user if found & email matches, otherwise null.
+ * Looks up a user by username and verifies that the email matches.
  */
 export function getUserByUsernameAndEmail(username: string, email: string): User | null {
-  const db = getDB();
-  const result = db.exec(
-    'SELECT id, username, password, name, role, email, created_at FROM users WHERE username=? AND LOWER(email)=LOWER(?)',
-    [username, email]
-  );
-  if (!result.length || !result[0].values.length) return null;
-  return rowToUser(result[0].values[0]);
+  const user = cachedUsers.find(u => u.username.toLowerCase() === username.toLowerCase());
+  if (!user) return null;
+
+  // Direct case-insensitive email matching check
+  if (user.email.toLowerCase() !== email.toLowerCase()) {
+    return null;
+  }
+
+  return user;
 }
 
 /**
- * Resets the password for a user identified by their id.
+ * Resets the password for a user.
  */
 export async function resetPassword(userId: string, newPassword: string): Promise<void> {
-  const db = getDB();
-  const hashed = await hashPassword(newPassword);
-  db.run('UPDATE users SET password=? WHERE id=?', [hashed, userId]);
-  saveDB();
+  try {
+    const hashed = await hashPassword(newPassword);
+    
+    // Sync update to SQLite and Supabase
+    const payload = { password: hashed };
+    syncWrite('users', 'update', userId, payload);
+  } catch (err) {
+    console.error('resetPassword exception:', err);
+    throw err;
+  }
 }

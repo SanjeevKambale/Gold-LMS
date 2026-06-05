@@ -54,3 +54,28 @@ public/sql-wasm-browser.wasm
 # Vite & ESLint cache
 .vite/
 .eslintcache
+
+# Packaged Electron App formats and installer releases
+release/
+out/
+*.exe
+*.exe.blockmap
+*.dmg
+*.dmg.blockmap
+*.deb
+*.rpm
+*.zip
+*.tar.gz
+*.asar
+
+# Test coverage
+coverage/
+
+# Temporary directories
+.temp/
+.tmp/
+
+# Local test & scratch scripts
+test_connection.js
+scratch/
+*.scratch.*

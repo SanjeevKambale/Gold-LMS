@@ -363,142 +363,154 @@ export function EMIManagement({ currentUser }: EMIManagementProps) {
 
           {/* EMI List Table */}
           <div className="bg-white rounded-none border border-black/15 shadow-sm overflow-hidden flex-1 hover:shadow-md transition-all duration-300">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="text-left py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">Customer</th>
-                    <th className="text-left py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">EMI</th>
-                    <th className="text-center py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">Collected / Total</th>
-                    <th className="text-center py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">Remaining</th>
-                    <th className="text-center py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">Penalty</th>
-                    <th className="text-center py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="text-center py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {filteredEMIs.map((emi) => (
-                    <tr key={emi.id} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="py-4 px-6">
-                        <div>
-                          <p className="text-sm font-bold text-gray-900">{emi.customerName}</p>
-                          <p className="text-xs text-gray-500 font-mono">Loan {emi.loanId}</p>
-                          {emi.status === 'paid' && (
-                            <p className="text-[10px] text-green-600 font-semibold font-mono mt-0.5">
-                              Receipt: REC-EMI-{emi.paymentId ? emi.paymentId.replace('pay_', '').toUpperCase() : `${emi.loanId.slice(-6)}-${emi.emiNumber}`}
+            {filteredEMIs.length === 0 ? (
+              <div className="flex flex-col items-center justify-center min-h-[350px] p-6 text-center space-y-4">
+                <div className="w-16 h-16 bg-gray-50 text-gray-400 border border-black/5 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                  <Search className="w-8 h-8 text-yellow-500" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="font-bold text-gray-900 text-lg">No EMI Entries Found</h4>
+                  <p className="text-sm text-gray-500 max-w-sm mx-auto">There are no EMI entries matching your search or filters.</p>
+                </div>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">Customer</th>
+                      <th className="text-left py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">EMI</th>
+                      <th className="text-center py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">Collected / Total</th>
+                      <th className="text-center py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">Remaining</th>
+                      <th className="text-center py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">Penalty</th>
+                      <th className="text-center py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="text-center py-4 px-6 text-xs font-bold text-gray-500 uppercase tracking-wider">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredEMIs.map((emi) => (
+                      <tr key={emi.id} className="hover:bg-gray-50/50 transition-colors">
+                        <td className="py-4 px-6">
+                          <div>
+                            <p className="text-sm font-bold text-gray-900">{emi.customerName}</p>
+                            <p className="text-xs text-gray-500 font-mono">Loan {emi.loanId}</p>
+                            {emi.status === 'paid' && (
+                              <p className="text-[10px] text-green-600 font-semibold font-mono mt-0.5">
+                                Receipt: REC-EMI-{emi.paymentId ? emi.paymentId.replace('pay_', '').toUpperCase() : `${emi.loanId.slice(-6)}-${emi.emiNumber}`}
+                              </p>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-4 px-6">
+                          <p className="text-sm font-bold text-gray-900">EMI {emi.emiNumber}</p>
+                        </td>
+                        <td className="py-4 px-6 text-center">
+                          <p className="text-sm font-bold text-gray-900">
+                            {emi.paidAmount !== undefined && emi.paidAmount > 0 ? (
+                              <>
+                                <span className={(emi.paidAmount < emi.amount && emi.status === 'paid') ? 'text-orange-600' : emi.status === 'paid' ? 'text-green-600' : 'text-blue-600'}>
+                                  ₹{emi.paidAmount.toLocaleString()}
+                                </span>
+                                <span className="text-gray-400 font-normal"> / ₹{emi.amount.toLocaleString()}</span>
+                              </>
+                            ) : (
+                              `₹${emi.amount.toLocaleString()}`
+                            )}
+                          </p>
+                          {emi.paidAmount !== undefined && emi.paidAmount > 0 && emi.paidAmount < emi.amount && (
+                            <p className="text-[10px] font-black text-orange-500 mt-0.5">
+                              Bal: ₹{(emi.amount - emi.paidAmount).toLocaleString()}
                             </p>
                           )}
-                        </div>
-                      </td>
-                      <td className="py-4 px-6">
-                        <p className="text-sm font-bold text-gray-900">EMI {emi.emiNumber}</p>
-                      </td>
-                      <td className="py-4 px-6 text-center">
-                        <p className="text-sm font-bold text-gray-900">
-                          {emi.paidAmount !== undefined && emi.paidAmount > 0 ? (
-                            <>
-                              <span className={(emi.paidAmount < emi.amount && emi.status === 'paid') ? 'text-orange-600' : emi.status === 'paid' ? 'text-green-600' : 'text-blue-600'}>
-                                ₹{emi.paidAmount.toLocaleString()}
-                              </span>
-                              <span className="text-gray-400 font-normal"> / ₹{emi.amount.toLocaleString()}</span>
-                            </>
-                          ) : (
-                            `₹${emi.amount.toLocaleString()}`
-                          )}
-                        </p>
-                        {emi.paidAmount !== undefined && emi.paidAmount > 0 && emi.paidAmount < emi.amount && (
-                          <p className="text-[10px] font-black text-orange-500 mt-0.5">
-                            Bal: ₹{(emi.amount - emi.paidAmount).toLocaleString()}
+                        </td>
+                        <td className="py-4 px-6 text-center">
+                          <p className="text-sm font-bold text-gray-900">
+                            ₹{getRunningBalance(emi).toLocaleString()}
                           </p>
-                        )}
-                      </td>
-                      <td className="py-4 px-6 text-center">
-                        <p className="text-sm font-bold text-gray-900">
-                          ₹{getRunningBalance(emi).toLocaleString()}
-                        </p>
-                      </td>
-                      <td className="py-4 px-6 text-center">
-                        {emi.status === 'overdue' ? (
-                          <p className="text-sm font-black text-red-600">₹{calculateEMIPenalty(emi).toLocaleString()}</p>
-                        ) : (
-                          <p className="text-sm text-gray-400">-</p>
-                        )}
-                      </td>
-                      <td className="py-4 px-6 text-center">
-                        <span className={`inline-flex items-center px-4 py-1 rounded-full text-[10px] font-bold tracking-wide border border-current ${getStatusColor(emi.status)}`}>
-                          {emi.status}
-                        </span>
-                      </td>
-                      <td className="py-4 px-6 text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          {(emi.status === 'pending' || emi.status === 'overdue') && (
-                            <>
-                              <button
-                                onClick={() => {
-                                  setSelectedEMI(emi);
-                                  setShowPayModal(true);
-                                }}
-                                className="px-4 py-1.5 bg-green-500 text-white text-xs font-bold rounded-none border border-black/15 hover:bg-green-600 transition-all active:scale-95 shadow-sm shadow-green-100"
-                              >
-                                Pay
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedEMI(emi);
-                                  setShowQRModal(true);
-                                }}
-                                className="p-2 text-yellow-600 bg-yellow-50 hover:bg-yellow-100 rounded-none border border-black/15 transition-all active:scale-95"
-                              >
-                                <QrCode className="w-4 h-4" />
-                              </button>
-                            </>
+                        </td>
+                        <td className="py-4 px-6 text-center">
+                          {emi.status === 'overdue' ? (
+                            <p className="text-sm font-black text-red-600">₹{calculateEMIPenalty(emi).toLocaleString()}</p>
+                          ) : (
+                            <p className="text-sm text-gray-400">-</p>
                           )}
-                          {emi.status === 'paid' && (
-                            <button
-                              onClick={() => {
-                                const allEmisForLoan = getEMIsByLoan(emi.loanId);
-                                
-                                // Fetch related EMIs if part of a group payment
-                                let relatedEmis = [emi];
-                                if (emi.paymentId) {
-                                  relatedEmis = getEMIsByPaymentId(emi.paymentId);
-                                }
-                                
-                                const totalPaidAmount = relatedEmis.reduce((sum, e) => sum + (e.paidAmount || 0), 0);
-                                const coveredEMIs = relatedEmis.map(e => e.emiNumber);
+                        </td>
+                        <td className="py-4 px-6 text-center">
+                          <span className={`inline-flex items-center px-4 py-1 rounded-full text-[10px] font-bold tracking-wide border border-current ${getStatusColor(emi.status)}`}>
+                            {emi.status}
+                          </span>
+                        </td>
+                        <td className="py-4 px-6 text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            {(emi.status === 'pending' || emi.status === 'overdue') && (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    setSelectedEMI(emi);
+                                    setShowPayModal(true);
+                                  }}
+                                  className="px-4 py-1.5 bg-green-500 text-white text-xs font-bold rounded-none border border-black/15 hover:bg-green-600 transition-all active:scale-95 shadow-sm shadow-green-100"
+                                >
+                                  Pay
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedEMI(emi);
+                                    setShowQRModal(true);
+                                  }}
+                                  className="p-2 text-yellow-600 bg-yellow-50 hover:bg-yellow-100 rounded-none border border-black/15 transition-all active:scale-95"
+                                >
+                                  <QrCode className="w-4 h-4" />
+                                </button>
+                              </>
+                            )}
+                            {emi.status === 'paid' && (
+                              <button
+                                onClick={() => {
+                                  const allEmisForLoan = getEMIsByLoan(emi.loanId);
+                                  
+                                  // Fetch related EMIs if part of a group payment
+                                  let relatedEmis = [emi];
+                                  if (emi.paymentId) {
+                                    relatedEmis = getEMIsByPaymentId(emi.paymentId);
+                                  }
+                                  
+                                  const totalPaidAmount = relatedEmis.reduce((sum, e) => sum + (e.paidAmount || 0), 0);
+                                  const coveredEMIs = relatedEmis.map(e => e.emiNumber);
 
-                                generateEMIReceipt({
-                                  loanId: emi.loanId,
-                                  customerName: emi.customerName,
-                                  emiNumber: emi.emiNumber,
-                                  emiAmount: emi.amount,
-                                  penaltyAmount: calculateEMIPenalty(emi),
-                                  paidAmount: emi.paidAmount || emi.amount,
-                                  totalPaidAmount,
-                                  coveredEMIs,
-                                  paymentMethod: emi.paymentMethod || 'cash',
-                                  transactionRef: emi.transactionRef || '',
-                                  dueDate: emi.dueDate,
-                                  paidDate: emi.paidDate || emi.dueDate,
-                                  remainingBalance: getRemainingLoanBalance(emi.loanId),
-                                  totalEMIs: allEmisForLoan.length,
-                                  paidEMIsCount: allEmisForLoan.filter(e => e.status === 'paid').length,
-                                  paymentId: emi.paymentId,
-                                  penaltyRate: emi.penaltyRate,
-                                });
-                              }}
-                              className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-none border border-black/15 transition-all active:scale-95"
-                            >
-                              <FileText className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                                  generateEMIReceipt({
+                                    loanId: emi.loanId,
+                                    customerName: emi.customerName,
+                                    emiNumber: emi.emiNumber,
+                                    emiAmount: emi.amount,
+                                    penaltyAmount: calculateEMIPenalty(emi),
+                                    paidAmount: emi.paidAmount || emi.amount,
+                                    totalPaidAmount,
+                                    coveredEMIs,
+                                    paymentMethod: emi.paymentMethod || 'cash',
+                                    transactionRef: emi.transactionRef || '',
+                                    dueDate: emi.dueDate,
+                                    paidDate: emi.paidDate || emi.dueDate,
+                                    remainingBalance: getRemainingLoanBalance(emi.loanId),
+                                    totalEMIs: allEmisForLoan.length,
+                                    paidEMIsCount: allEmisForLoan.filter(e => e.status === 'paid').length,
+                                    paymentId: emi.paymentId,
+                                    penaltyRate: emi.penaltyRate,
+                                  });
+                                }}
+                                className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-none border border-black/15 transition-all active:scale-95"
+                              >
+                                <FileText className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* EMI List - Mobile Card View - REMOVED */}

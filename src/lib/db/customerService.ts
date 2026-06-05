@@ -1,100 +1,63 @@
-import { Customer, KYCDocument } from '../../types';
-import { getDB, saveDB } from '../database';
-import { getSystemWorkingDate } from '../workingDate';
-
-function rowToCustomer(row: any[]): Customer {
-  const kycDocsJson = row[11] as string | undefined;
-  let kycDocuments: KYCDocument[] = [];
-  
-  try {
-    if (kycDocsJson) {
-      kycDocuments = JSON.parse(kycDocsJson);
-    } else {
-      // Migrate from legacy fields if new ones are empty
-      kycDocuments = [{
-        id: 'legacy-1',
-        type: row[6] as string,
-        number: row[7] as string,
-        status: row[5] as 'pending' | 'verified' | 'rejected',
-      }];
-    }
-  } catch (e) {
-    console.error('Failed to parse kycDocsJson', e);
-  }
-
-  return {
-    id: row[0] as string,
-    name: row[1] as string,
-    email: row[2] as string,
-    phone: row[3] as string,
-    address: row[4] as string,
-    kycStatus: row[5] as 'pending' | 'verified' | 'rejected',
-    kycDocument: row[6] as string,
-    kycNumber: row[7] as string,
-    kycDocuments,
-    createdAt: row[8] as string,
-    photoUrl: row[9] as string | undefined,
-    createdBy: row[10] as string | undefined,
-  };
-}
+import { Customer } from '../../types';
+import { cachedCustomers, syncWrite } from '../database';
 
 export function getAllCustomers(): Customer[] {
-  const db = getDB();
-  const today = getSystemWorkingDate();
-  const result = db.exec(
-    'SELECT id, name, email, phone, address, kyc_status, kyc_document, kyc_number, created_at, photo_url, created_by, kyc_docs_json FROM customers WHERE created_at <= ? ORDER BY created_at DESC',
-    [today]
-  );
-  if (!result.length) return [];
-  return result[0].values.map(rowToCustomer);
+  return cachedCustomers;
 }
 
 export function addCustomer(customer: Customer): void {
-  const db = getDB();
-  db.run(
-    `INSERT INTO customers (id, name, email, phone, address, kyc_status, kyc_document, kyc_number, created_at, photo_url, created_by, kyc_docs_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      customer.id,
-      customer.name,
-      customer.email,
-      customer.phone,
-      customer.address,
-      customer.kycStatus,
-      customer.kycDocument,
-      customer.kycNumber,
-      customer.createdAt,
-      customer.photoUrl ?? null,
-      customer.createdBy ?? null,
-      JSON.stringify(customer.kycDocuments || []),
-    ]
-  );
-  saveDB();
+  // 1. Add to cache synchronously (unshift to put the newest at the top)
+  cachedCustomers.unshift(customer);
+
+  // 2. Sync locally and to Supabase
+  const payload = {
+    id: customer.id,
+    name: customer.name,
+    email: customer.email,
+    phone: customer.phone,
+    address: customer.address,
+    kyc_status: customer.kycStatus,
+    kyc_document: customer.kycDocument,
+    kyc_number: customer.kycNumber,
+    created_at: customer.createdAt,
+    photo_url: customer.photoUrl || null,
+    created_by: customer.createdBy || null,
+    kyc_docs_json: JSON.stringify(customer.kycDocuments || []),
+  };
+
+  syncWrite('customers', 'insert', customer.id, payload);
 }
 
 export function updateCustomer(customer: Customer): void {
-  const db = getDB();
-  db.run(
-    `UPDATE customers SET name=?, email=?, phone=?, address=?, kyc_status=?, kyc_document=?, kyc_number=?, photo_url=?, kyc_docs_json=?
-     WHERE id=?`,
-    [
-      customer.name,
-      customer.email,
-      customer.phone,
-      customer.address,
-      customer.kycStatus,
-      customer.kycDocument,
-      customer.kycNumber,
-      customer.photoUrl ?? null,
-      JSON.stringify(customer.kycDocuments || []),
-      customer.id,
-    ]
-  );
-  saveDB();
+  // 1. Update cache synchronously
+  const idx = cachedCustomers.findIndex(c => c.id === customer.id);
+  if (idx !== -1) {
+    cachedCustomers[idx] = customer;
+  }
+
+  // 2. Sync locally and to Supabase
+  const payload = {
+    name: customer.name,
+    email: customer.email,
+    phone: customer.phone,
+    address: customer.address,
+    kyc_status: customer.kycStatus,
+    kyc_document: customer.kycDocument,
+    kyc_number: customer.kycNumber,
+    photo_url: customer.photoUrl || null,
+    kyc_docs_json: JSON.stringify(customer.kycDocuments || []),
+  };
+
+  syncWrite('customers', 'update', customer.id, payload);
 }
 
 export function deleteCustomer(id: string): void {
-  const db = getDB();
-  db.run('DELETE FROM customers WHERE id=?', [id]);
-  saveDB();
+  // 1. Delete from cache synchronously
+  const idx = cachedCustomers.findIndex(c => c.id === id);
+  if (idx !== -1) {
+    cachedCustomers.splice(idx, 1);
+  }
+
+  // 2. Sync locally and to Supabase
+  syncWrite('customers', 'delete', id);
 }

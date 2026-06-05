@@ -22,8 +22,10 @@
   /* --- Layout & Spacing --- */
   --spacing-unit: 0.25rem;
   --container-max-width: 1280px;
-  --border-radius-lg: 0;
-  --border-radius-xl: 0;
+  --border-radius-lg: 12px;
+  --border-radius-xl: 16px;
+  --border-radius-sm: 8px;
+  --border-radius-xs: 6px;
   
   /* --- Component Variables --- */
   --landing-btn-width: 200px;
@@ -121,4 +123,49 @@ body {
   .dashboard-stats-grid {
     grid-template-columns: repeat(4, 1fr);
   }
+}
+
+/* --- Rounded Corner Overrides for Containers & Cards --- */
+
+/* 1. Radix Card Slot & App Cards */
+[data-slot="card"],
+.app-card {
+  border-radius: var(--border-radius-lg) !important;
+  overflow: hidden; /* Prevent child backgrounds from bleeding out of rounded corners */
+}
+
+/* 2. Modals & Dialogs (Radix Dialog Content & Custom Modal wrappers) */
+[data-slot="dialog-content"],
+.fixed > div.bg-white {
+  border-radius: var(--border-radius-xl) !important;
+  overflow: hidden;
+}
+
+/* 3. Main layout container panels (e.g., dashboard lists, directories) */
+.bg-white.border.border-black\/15,
+.bg-white.border.border-gray-200,
+.bg-card.border.border-black\/15 {
+  border-radius: var(--border-radius-lg) !important;
+  overflow: hidden;
+}
+
+/* 4. Small nested boxes (e.g. pending/overdue EMI cards inside containers) */
+.bg-yellow-50.border,
+.bg-red-50.border,
+.bg-gray-50.border,
+.bg-blue-50.border,
+.bg-emerald-50.border {
+  border-radius: var(--border-radius-sm) !important;
+}
+
+/* 5. Cohesive styling: Slight rounding for buttons and inputs */
+[data-slot="button"],
+[data-slot="select-trigger"],
+[data-slot="input"],
+[data-slot="textarea"],
+button.py-2\.5,
+select.py-2,
+input.py-2,
+textarea.py-2 {
+  border-radius: var(--border-radius-xs) !important;
 }
