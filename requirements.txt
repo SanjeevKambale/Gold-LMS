@@ -1,0 +1,97 @@
+========================================================================
+             GOLD LOAN MANAGEMENT SYSTEM - SYSTEM REQUIREMENTS
+========================================================================
+
+This document lists all the required software, development tools, and package
+dependencies to set up, build, and run the Gold Loan Management application.
+
+------------------------------------------------------------------------
+1. REQUIRED SYSTEM SOFTWARE (To be installed on the machine)
+------------------------------------------------------------------------
+
+* Node.js (v18.0.0 or higher)
+  - Recommended: Node.js v20.x.x LTS (Long Term Support)
+  - Download: https://nodejs.org/
+  - Purpose: JavaScript runtime for execution, running development tools,
+             compiling assets, and bundling the Electron desktop app.
+
+* NPM (Node Package Manager)
+  - Bundled automatically with the Node.js installation.
+  - Purpose: Installing package dependencies.
+
+* Git (Recommended)
+  - Download: https://git-scm.com/
+  - Purpose: Version control.
+
+* Web Browser (For Web Environment Testing)
+  - Google Chrome, Microsoft Edge, Firefox, or Safari (modern versions).
+
+* Supabase Cloud Account or Supabase CLI (Required for database connection)
+  - Sign up: https://supabase.com/
+  - Purpose: Hosting the remote PostgreSQL database schema (schema file found at
+             `src/lib/db/supabase_schema.sql`).
+
+* C++ Build Tools (Optional, only needed if native modules need recompilation on Windows)
+  - Visual Studio Build Tools with C++ desktop development workload.
+
+------------------------------------------------------------------------
+2. CODE EDITOR / IDE (Recommended Setup)
+------------------------------------------------------------------------
+
+* Visual Studio Code
+  - Download: https://code.visualstudio.com/
+* Recommended VS Code Extensions:
+  - TypeScript and JavaScript Language Features (Built-in)
+  - Tailwind CSS IntelliSense (By Tailwind Labs)
+  - ESLint (By Dirk Baeumer)
+
+------------------------------------------------------------------------
+3. PROJECT CONFIGURATION FILES
+------------------------------------------------------------------------
+
+Before running the app, verify that you have a `.env` file in the root directory
+with the following credentials:
+  VITE_SUPABASE_URL=https://your-project-id.supabase.co
+  VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
+
+------------------------------------------------------------------------
+4. CORE PROJECT DEPENDENCIES (Installed via package.json)
+------------------------------------------------------------------------
+
+No manual installation of these libraries is required. Running `npm install`
+will download them automatically.
+
+Runtime Libraries:
+- React (v18.3.1) & React DOM - Frontend library
+- Electron (v41.0.3) - Desktop application framework shell
+- @supabase/supabase-js (v2.106.2) - Supabase integration client
+- sql.js (v1.14.1) - SQLite client in WebAssembly for local DB capabilities
+- Lucide React (v0.487.0) - Modern iconography
+- jsPDF (v4.2.1) & jspdf-autotable - PDF export generation
+- exceljs (v4.4.0) - Excel reporting
+- Radix UI primitives - Accessible interactive UI primitives (Dialog, Select, Popover, etc.)
+- Tailwind CSS & Tailwind-merge - Styling and styling helpers
+- i18next & react-i18next - Multi-language localization support
+- React Hook Form - Form state & validation
+
+Build & Developer Tools:
+- Vite (v6.3.5) - Fast frontend dev server & bundler
+- TypeScript (v5.7.3) - Type safety and compiling
+- Electron Builder (v26.8.1) - Desktop executable packager
+- Electron Packager (v17.1.2) - Desktop packaging tool
+- ESLint (v9.21.0) - Code linter
+
+------------------------------------------------------------------------
+5. HOW TO GET STARTED
+------------------------------------------------------------------------
+
+1. Clone or download the repository.
+2. Ensure Node.js is installed (verify with `node -v` in command prompt).
+3. Navigate to the root directory and install dependencies:
+   npm install
+4. Run Web Application in development mode:
+   npm run dev
+5. Run Desktop Application (Electron) in development mode:
+   npm run electron:dev
+6. Build Desktop Executable:
+   npm run electron:package
