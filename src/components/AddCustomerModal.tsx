@@ -50,7 +50,7 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
     
     setIsUploadingPhoto(true);
     try {
-      const compressed = await compressImage(file, 1200, 0.75);
+      const compressed = await compressImage(file, 800, 0.6);
       const filePath = await saveUploadedFile(compressed, (formData.name || 'temporary_customer') + '_photo');
       setCustomerPhotoUrl(filePath);
       setCustomerPhotoFileName(compressed.name);
@@ -123,9 +123,9 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
     
     setErrorMessage(null);
 
-    // Enforce 2MB size limit for PDF documents
-    if (file.type.includes('pdf') && file.size > 2 * 1024 * 1024) {
-      setErrorMessage("Document file size exceeds the 2MB limit! Please upload a compressed PDF or scan at a lower DPI.");
+    // Enforce 1MB size limit for PDF documents
+    if (file.type.includes('pdf') && file.size > 1 * 1024 * 1024) {
+      setErrorMessage("Document file size exceeds the 1MB limit! Please upload a compressed PDF or scan at a lower DPI.");
       return;
     }
     
@@ -133,7 +133,7 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
     try {
       let finalFile = file;
       if (file.type.startsWith('image/')) {
-        finalFile = await compressImage(file, 1200, 0.75);
+        finalFile = await compressImage(file, 800, 0.6);
       }
       const filePath = await saveUploadedFile(finalFile, formData.name || 'temporary_customer');
       handleUpdateDocFields(id, {
@@ -206,8 +206,8 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
 
   return (
     <>
-      <div className={`fixed inset-0 bg-black flex ${showFaceCamera ? 'flex-col lg:flex-row items-center justify-center gap-6 overflow-y-auto' : 'items-center justify-center'} z-50 p-4`}>
-        <div className="bg-white rounded-none border border-black/15 max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+      <div className={`fixed inset-0 bg-black overflow-y-auto flex ${showFaceCamera ? 'flex-col lg:flex-row items-center justify-center gap-6' : 'items-center justify-center'} z-50 p-4`}>
+        <div className="bg-white rounded-none border border-black/15 max-w-3xl w-full my-auto shadow-2xl">
         <div className="sticky top-0 bg-white border-b border-black/15 px-4 md:px-6 py-3 md:py-4 flex items-center justify-between z-10">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-yellow-100 rounded-none border border-black/15 flex items-center justify-center text-yellow-600">

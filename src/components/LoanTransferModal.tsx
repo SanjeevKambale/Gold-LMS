@@ -56,8 +56,8 @@ export function LoanTransferModal({ loan, currentUser, onClose, onSuccess }: Loa
   };
 
   return (
-    <div className="fixed inset-0 bg-black flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-none border border-black/15 max-w-md w-full shadow-2xl overflow-hidden border border-black/15">
+    <div className="fixed inset-0 bg-black overflow-y-auto flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-none border border-black/15 max-w-md w-full shadow-2xl overflow-hidden border border-black/15 my-auto">
         <div className="bg-yellow-500 px-6 py-4 flex items-center justify-between text-white">
           <div className="flex items-center gap-3">
             <Send className="w-6 h-6" />

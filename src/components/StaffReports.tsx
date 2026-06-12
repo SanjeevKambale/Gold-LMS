@@ -5,7 +5,7 @@ import { getAllLoans, deleteLoan } from '../lib/db/loanService';
 import { getAllEMIs, resetEMIPayment } from '../lib/db/emiService';
 import { getAllCustomers, deleteCustomer } from '../lib/db/customerService';
 import { getAllPayments, deletePayment } from '../lib/db/paymentService';
-import { openLocalFile } from '../lib/fileService';
+import { openLocalFile, getFileUrl } from '../lib/fileService';
 import { getSystemWorkingDate } from '../lib/workingDate';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -28,6 +28,7 @@ import {
   Printer,
   Download,
   FileText,
+  X,
 } from 'lucide-react';
 
 interface StaffReportsProps {
@@ -404,6 +405,7 @@ export function StaffReports({ currentUser }: StaffReportsProps) {
   const [confirm, setConfirm] = useState<ConfirmState>({
     show: false, title: '', message: '', onConfirm: () => {},
   });
+  const [showOrnamentImage, setShowOrnamentImage] = useState<string | null>(null);
 
   // ── Filter states ─────────────────────────────────────────────────────────
   const today = getSystemWorkingDate();
@@ -1362,7 +1364,7 @@ export function StaffReports({ currentUser }: StaffReportsProps) {
                         {parseOrnamentPhotos(loan.ornamentPhotoUrl).map((photo, i) => (
                           <button
                             key={i}
-                            onClick={() => openLocalFile(photo.url)}
+                            onClick={() => setShowOrnamentImage(photo.url)}
                             className="text-yellow-600 hover:text-yellow-750 inline-flex items-center gap-1 text-xs font-bold bg-yellow-50 hover:bg-yellow-100 border border-yellow-200 px-2 py-1 rounded-sm shadow-sm transition-all"
                             title={photo.name}
                           >
@@ -1474,6 +1476,27 @@ export function StaffReports({ currentUser }: StaffReportsProps) {
                 Yes, Delete
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Ornament Image Viewer Modal */}
+      {showOrnamentImage && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200" onClick={() => setShowOrnamentImage(null)}>
+          <div className="relative max-w-4xl w-full flex flex-col items-center justify-center" onClick={(e) => e.stopPropagation()}>
+            <div className="w-full flex justify-end mb-2">
+              <button
+                onClick={() => setShowOrnamentImage(null)}
+                className="p-2 text-white hover:text-gray-300 transition-colors bg-black bg-opacity-60 rounded-full"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <img 
+              src={getFileUrl(showOrnamentImage)} 
+              alt="Gold Ornament" 
+              className="w-full h-auto object-contain border-4 border-white shadow-2xl bg-white animate-in zoom-in-95 duration-200"
+              style={{ maxHeight: '85vh' }}
+            />
           </div>
         </div>
       )}

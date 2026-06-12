@@ -38,8 +38,8 @@ export function AdminVerificationModal({ currentUser, onClose, onSuccess }: Admi
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black">
-      <div className="bg-white rounded-none shadow-xl w-full max-w-md border border-black/15">
+    <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4 bg-black">
+      <div className="bg-white rounded-none shadow-xl w-full max-w-md border border-black/15 my-auto">
         <div className="flex items-center justify-between p-6 border-b border-black/15 bg-gray-50/50">
           <div className="flex items-center gap-2">
             <Lock className="w-5 h-5 text-yellow-600" />

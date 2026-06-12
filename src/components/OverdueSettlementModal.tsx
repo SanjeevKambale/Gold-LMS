@@ -277,8 +277,8 @@ export function OverdueSettlementModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-none border border-black/15 w-full shadow-2xl flex flex-col overflow-hidden max-h-[95vh]" style={{ maxWidth: '44rem' }}>
+    <div className="fixed inset-0 bg-black bg-opacity-60 overflow-y-auto flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-none border border-black/15 w-full shadow-2xl flex flex-col my-auto" style={{ maxWidth: '44rem' }}>
         
         {/* Header */}
         <div className="bg-yellow-500 px-6 py-4 flex items-center justify-between border-b border-black/15 text-white">

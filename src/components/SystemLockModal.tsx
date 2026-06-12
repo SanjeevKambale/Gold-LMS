@@ -41,11 +41,11 @@ export function SystemLockModal({ currentUser, onUnlock }: SystemLockModalProps)
 
   return (
     <div 
-      className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/30 backdrop-blur-xl animate-in fade-in duration-300"
+      className="fixed inset-0 z-[99999] overflow-y-auto flex items-center justify-center p-4 bg-black/30 backdrop-blur-xl animate-in fade-in duration-300"
       style={{ backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}
     >
       <div 
-        className="bg-white rounded-none shadow-2xl border border-black/15 animate-in zoom-in-95 duration-300 overflow-hidden"
+        className="bg-white rounded-none shadow-2xl border border-black/15 animate-in zoom-in-95 duration-300 overflow-hidden my-auto"
         style={{ width: '460px', maxWidth: '100%' }}
       >
         {/* Header Header styling to match premium welcome card */}

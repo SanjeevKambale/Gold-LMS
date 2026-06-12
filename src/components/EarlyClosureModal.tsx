@@ -84,8 +84,8 @@ export function EarlyClosureModal({ loan, onClose, onClosed }: EarlyClosureModal
   // ── Success Screen ─────────────────────────────────────────────────────────
   if (step === 'success' && result) {
     return (
-      <div className="fixed inset-0 bg-black flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-none border border-black/15 w-full max-w-md shadow-2xl overflow-hidden">
+      <div className="fixed inset-0 bg-black overflow-y-auto flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-none border border-black/15 w-full max-w-md shadow-2xl overflow-hidden my-auto">
           {/* Header */}
           <div className="bg-green-600 px-6 py-8 text-center relative overflow-hidden">
             <div className="absolute -top-6 -right-6 w-24 h-24 bg-white opacity-10 rounded-full" />
@@ -151,8 +151,8 @@ export function EarlyClosureModal({ loan, onClose, onClosed }: EarlyClosureModal
 
   // ── Overview + Payment Form ────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-none border border-black/15 w-full shadow-2xl flex flex-col overflow-hidden" style={{ maxWidth: '42rem', maxHeight: '90vh' }}>
+    <div className="fixed inset-0 bg-black bg-opacity-60 overflow-y-auto flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-none border border-black/15 w-full shadow-2xl flex flex-col my-auto" style={{ maxWidth: '42rem' }}>
 
         {/* Header */}
         <div className="bg-yellow-500 flex items-center justify-between" style={{ padding: '1.25rem 1.5rem' }}>

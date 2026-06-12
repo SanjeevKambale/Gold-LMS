@@ -90,7 +90,7 @@ export function SignUp({ onSignUpSuccess, onSwitchToLogin, onBack }: SignUpProps
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-yellow-50 via-white to-yellow-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-md my-auto">
 
         {/* Sign Up Card */}
         <div className="bg-white rounded-none border border-black/15 shadow-xl overflow-hidden hover:shadow-2xl transition-all duration-500">

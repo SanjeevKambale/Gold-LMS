@@ -12,6 +12,7 @@ import { BulletLoanLedger } from './BulletLoanLedger';
 import { OverdueSettlementModal } from './OverdueSettlementModal';
 import { generateLoanReceipt } from '../lib/pdfReceipt';
 import { logActivity } from '../lib/activityLogger';
+import { getFileUrl } from '../lib/fileService';
 
 function parseOrnamentPhotos(photoUrlStr?: string): { url: string; name: string }[] {
   if (!photoUrlStr) return [];
@@ -721,7 +722,7 @@ export function LoanManagement({ currentUser }: LoanManagementProps) {
               </button>
             </div>
             <img 
-              src={showOrnamentImage} 
+              src={getFileUrl(showOrnamentImage)} 
               alt="Gold Ornament" 
               className="w-full h-auto object-contain border-4 border-white shadow-2xl bg-white"
               style={{ maxHeight: '85vh' }}

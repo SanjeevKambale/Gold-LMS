@@ -201,8 +201,8 @@ export function BulletLoanLedger({ loan, currentUser, onRefresh, onModalStateCha
 
       {/* Payment Modal */}
       {showPaymentModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 visible" style={{ zIndex: 9999 }}>
-          <div className="bg-white w-full max-w-sm border border-black/15 shadow-2xl">
+        <div className="fixed inset-0 bg-black/50 overflow-y-auto flex items-center justify-center p-4 visible" style={{ zIndex: 9999 }}>
+          <div className="bg-white w-full max-w-sm border border-black/15 shadow-2xl my-auto">
             <div className="p-4 border-b border-black/15 bg-gray-50">
               <h3 className="font-bold text-lg">Record {paymentType.replace('_', ' ')}</h3>
             </div>

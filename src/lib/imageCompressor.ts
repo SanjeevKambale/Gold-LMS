@@ -6,8 +6,8 @@
 
 export async function compressImage(
   file: File,
-  maxDimension: number = 1200,
-  quality: number = 0.75
+  maxDimension: number = 800,
+  quality: number = 0.6
 ): Promise<File> {
   // If the file is not an image (e.g. it is a PDF), return it unchanged
   if (!file.type.startsWith('image/')) {

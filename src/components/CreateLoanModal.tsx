@@ -95,8 +95,8 @@ export function CreateLoanModal({ onClose, onCreate, currentUser, prefillTemplat
     if (!file) return;
     
     // Size limit enforcement for documents/PDFs
-    if (file.type.includes('pdf') && file.size > 2 * 1024 * 1024) {
-      alert("Document file size exceeds the 2MB limit! Please upload a compressed PDF.");
+    if (file.type.includes('pdf') && file.size > 1 * 1024 * 1024) {
+      alert("Document file size exceeds the 1MB limit! Please upload a compressed PDF.");
       return;
     }
 
@@ -104,7 +104,7 @@ export function CreateLoanModal({ onClose, onCreate, currentUser, prefillTemplat
     try {
       let finalFile = file;
       if (file.type.startsWith('image/')) {
-        finalFile = await compressImage(file, 1200, 0.75);
+        finalFile = await compressImage(file, 800, 0.6);
       }
       const customer = verifiedCustomers.find(c => c.id === selectedCustomerId);
       const name = customer ? customer.name : 'unknown_customer';
@@ -204,8 +204,8 @@ export function CreateLoanModal({ onClose, onCreate, currentUser, prefillTemplat
 
   return (
     <>
-      <div className={`fixed inset-0 bg-black flex ${showOrnamentCamera ? 'flex-col lg:flex-row items-center justify-center gap-6 overflow-y-auto' : 'items-center justify-center'} z-50 p-4`}>
-        <div className="bg-white rounded-none border border-black/15 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+      <div className={`fixed inset-0 bg-black overflow-y-auto flex ${showOrnamentCamera ? 'flex-col lg:flex-row items-center justify-center gap-6' : 'items-center justify-center'} z-50 p-4`}>
+        <div className="bg-white rounded-none border border-black/15 max-w-4xl w-full my-auto shadow-2xl">
         <div className="sticky top-0 bg-white border-b border-black/15 px-6 py-4 flex items-center justify-between">
           <h3 className="text-xl font-semibold text-gray-900">Create New Gold Loan</h3>
           <button

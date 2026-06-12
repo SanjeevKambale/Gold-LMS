@@ -60,8 +60,8 @@ export function CreateStaffModal({ onClose, onSuccess }: CreateStaffModalProps) 
   };
 
   return (
-    <div className="fixed inset-0 bg-black flex items-center justify-center z-[60] p-4">
-      <div className="bg-white rounded-none border border-black/15 w-full max-w-md shadow-2xl relative overflow-hidden">
+    <div className="fixed inset-0 bg-black overflow-y-auto flex items-center justify-center z-[60] p-4">
+      <div className="bg-white rounded-none border border-black/15 w-full max-w-md shadow-2xl relative overflow-hidden my-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-black/15 bg-gray-50/50">
           <div>
             <h3 className="text-lg font-bold text-gray-900">Add New Staff</h3>

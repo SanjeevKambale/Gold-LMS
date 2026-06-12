@@ -83,7 +83,7 @@ export function ForgotPassword({ onBackToLogin }: ForgotPasswordProps) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-yellow-50 via-white to-amber-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
+      <div className="w-full max-w-sm my-auto">
 
         {/* Logo and Title */}
         <div className="text-center mb-8">

@@ -103,8 +103,8 @@ export function PayEMIModal({ emi, onClose, onPay, customerPhone }: PayEMIModalP
     const receiptNo = `REC-EMI-${currentEmiInDb?.paymentId ? currentEmiInDb.paymentId.replace('pay_', '').toUpperCase() : `${emi.loanId.slice(-6)}-${emi.emiNumber}`}`;
 
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-none border border-black/15 max-w-md w-full shadow-2xl overflow-hidden border border-black/15">
+      <div className="fixed inset-0 bg-black bg-opacity-60 overflow-y-auto flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-none border border-black/15 max-w-md w-full shadow-2xl overflow-hidden border border-black/15 my-auto">
           <div className="bg-gradient-to-br from-green-500 to-emerald-600 px-6 py-6 text-center relative overflow-hidden">
             <div className="absolute top-0 right-0 -mr-6 -mt-6 w-24 h-24 bg-white opacity-10 rounded-full"></div>
             <CheckCircle className="w-12 h-12 text-white mx-auto mb-2 drop-shadow-sm" />
@@ -162,8 +162,8 @@ export function PayEMIModal({ emi, onClose, onPay, customerPhone }: PayEMIModalP
   }
 
   return (
-    <div className="fixed inset-0 bg-black flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-none border border-black/15 max-w-md w-full">
+    <div className="fixed inset-0 bg-black overflow-y-auto flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-none border border-black/15 max-w-md w-full my-auto">
         <div className="border-b border-black/15 px-6 py-4 flex items-center justify-between">
           <h3 className="text-xl font-semibold text-gray-900">Record EMI Payment</h3>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-none border border-black/15 transition-colors">

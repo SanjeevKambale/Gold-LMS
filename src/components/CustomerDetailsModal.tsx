@@ -88,8 +88,8 @@ export function CustomerDetailsModal({ customer, onClose, onUpdate }: CustomerDe
   };
 
   return (
-    <div className="fixed inset-0 bg-black flex items-center justify-center z-50 p-4">
-      <div className={`bg-white rounded-none border border-black/15 max-w-3xl w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col ${isConfirmOpen ? 'hidden' : ''}`}>
+    <div className="fixed inset-0 bg-black overflow-y-auto flex items-center justify-center z-50 p-4">
+      <div className={`bg-white rounded-none border border-black/15 max-w-3xl w-full shadow-2xl flex flex-col my-auto ${isConfirmOpen ? 'hidden' : ''}`}>
           {/* Header */}
           <div className="sticky top-0 bg-white border-b border-black/15 px-6 py-4 flex items-center justify-between z-10">
             <div className="flex items-center gap-3">
