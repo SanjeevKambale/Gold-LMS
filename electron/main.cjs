@@ -37,6 +37,20 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
   });
+
+  // Block browser-specific shortcuts in production (like reload and DevTools)
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (!isDev) {
+      const isReload = (input.control && input.key.toLowerCase() === 'r') || 
+                       (input.meta && input.key.toLowerCase() === 'r') ||
+                       (input.key === 'F5');
+      const isDevTools = (input.control && input.shift && input.key.toLowerCase() === 'i') ||
+                         (input.key === 'F12');
+      if (isReload || isDevTools) {
+        event.preventDefault();
+      }
+    }
+  });
 }
 
 app.whenReady().then(() => {
