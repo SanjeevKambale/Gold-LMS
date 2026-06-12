@@ -38,15 +38,19 @@ function createWindow() {
     mainWindow.show();
   });
 
-  // Block browser-specific shortcuts in production (like reload and DevTools)
+  // Block browser-specific shortcuts in all modes (like reload) and DevTools in production
   mainWindow.webContents.on('before-input-event', (event, input) => {
+    const isReload = (input.control && input.key.toLowerCase() === 'r') || 
+                     (input.meta && input.key.toLowerCase() === 'r') ||
+                     (input.key === 'F5');
+    if (isReload) {
+      event.preventDefault();
+    }
+
     if (!isDev) {
-      const isReload = (input.control && input.key.toLowerCase() === 'r') || 
-                       (input.meta && input.key.toLowerCase() === 'r') ||
-                       (input.key === 'F5');
       const isDevTools = (input.control && input.shift && input.key.toLowerCase() === 'i') ||
                          (input.key === 'F12');
-      if (isReload || isDevTools) {
+      if (isDevTools) {
         event.preventDefault();
       }
     }
