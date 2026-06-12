@@ -26,6 +26,8 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
 
   const [existingCustomers, setExistingCustomers] = useState<Customer[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -97,7 +99,7 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
   const isFormValid = () => {
     const isPersonalInfoValid = !!(formData.name && formData.phone && formData.email && formData.address && customerPhotoUrl);
     const areDocsValid = kycDocs.every(doc => doc.type && validateDocNumber(doc.type || '', doc.number || ''));
-    return isPersonalInfoValid && areDocsValid && !isUploading && !isUploadingPhoto;
+    return isPersonalInfoValid && areDocsValid && !isUploading && !isUploadingPhoto && !phoneError && !emailError;
   };
 
   const handleUpdateDoc = (id: string, field: keyof KYCDocument, value: any) => {
@@ -153,15 +155,36 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
     e.preventDefault();
     setErrorMessage(null);
 
-    // 1. Check if phone number already exists
-    const cleanPhone = formData.phone.trim().replace(/\D/g, '');
-    const phoneExists = existingCustomers.some(c => c.phone.trim().replace(/\D/g, '') === cleanPhone);
-    if (phoneExists) {
-      setErrorMessage("A customer with this phone number is already registered!");
+    // 1. Check if phone number already exists (compare last 10 digits for robust country code matching)
+    const cleanPhone = formData.phone ? formData.phone.trim().replace(/\D/g, '') : '';
+    const phoneDuplicate = existingCustomers.find(c => {
+      const existingClean = c.phone ? c.phone.trim().replace(/\D/g, '') : '';
+      if (!existingClean || !cleanPhone) return false;
+      if (cleanPhone.length >= 10 && existingClean.length >= 10) {
+        return cleanPhone.slice(-10) === existingClean.slice(-10);
+      }
+      return cleanPhone === existingClean;
+    });
+    if (phoneDuplicate) {
+      const msg = `This phone number is already registered to "${phoneDuplicate.name}"!`;
+      setPhoneError(msg);
+      setErrorMessage(msg);
       return;
     }
 
-    // 2. Validate that we have at least one valid doc or whatever requirements
+    // 2. Check if email already exists
+    const cleanEmail = formData.email ? formData.email.trim().toLowerCase() : '';
+    if (cleanEmail) {
+      const emailDuplicate = existingCustomers.find(c => c.email && c.email.trim().toLowerCase() === cleanEmail);
+      if (emailDuplicate) {
+        const msg = `This email address is already registered to "${emailDuplicate.name}"!`;
+        setEmailError(msg);
+        setErrorMessage(msg);
+        return;
+      }
+    }
+
+    // 3. Validate that we have at least one valid doc or whatever requirements
     const finalKycDocs: KYCDocument[] = kycDocs.map(doc => ({
       id: doc.id || Date.now().toString(),
       type: doc.type || 'Other',
@@ -268,10 +291,35 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
                   type="tel"
                   required
                   value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-gray-50 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition-all"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData({ ...formData, phone: val });
+                    const cleanPhone = val.trim().replace(/\D/g, '');
+                    if (cleanPhone) {
+                      const duplicate = existingCustomers.find(c => {
+                        const existingClean = c.phone ? c.phone.trim().replace(/\D/g, '') : '';
+                        if (cleanPhone.length >= 10 && existingClean.length >= 10) {
+                          return cleanPhone.slice(-10) === existingClean.slice(-10);
+                        }
+                        return cleanPhone === existingClean;
+                      });
+                      if (duplicate) {
+                        setPhoneError(`This phone number is already registered to "${duplicate.name}"!`);
+                      } else {
+                        setPhoneError(null);
+                      }
+                    } else {
+                      setPhoneError(null);
+                    }
+                  }}
+                  className={`w-full px-4 py-2.5 bg-gray-50 border rounded-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition-all ${
+                    phoneError ? 'border-red-500 bg-red-50' : 'border-black/15'
+                  }`}
                   placeholder="+91 98765 43210"
                 />
+                {phoneError && (
+                  <p className="text-xs text-red-600 font-bold mt-1 ml-1">{phoneError}</p>
+                )}
               </div>
 
               <div className="space-y-1.5">
@@ -282,10 +330,29 @@ export function AddCustomerModal({ onClose, onAdd }: AddCustomerModalProps) {
                   type="email"
                   required
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-gray-50 border border-black/15 rounded-none border border-black/15 focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition-all"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData({ ...formData, email: val });
+                    const cleanEmail = val.trim().toLowerCase();
+                    if (cleanEmail) {
+                      const duplicate = existingCustomers.find(c => c.email && c.email.trim().toLowerCase() === cleanEmail);
+                      if (duplicate) {
+                        setEmailError(`This email address is already registered to "${duplicate.name}"!`);
+                      } else {
+                        setEmailError(null);
+                      }
+                    } else {
+                      setEmailError(null);
+                    }
+                  }}
+                  className={`w-full px-4 py-2.5 bg-gray-50 border rounded-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition-all ${
+                    emailError ? 'border-red-500 bg-red-50' : 'border-black/15'
+                  }`}
                   placeholder="john@example.com"
                 />
+                {emailError && (
+                  <p className="text-xs text-red-600 font-bold mt-1 ml-1">{emailError}</p>
+                )}
               </div>
 
               <div className="space-y-1.5">

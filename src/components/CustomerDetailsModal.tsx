@@ -3,6 +3,7 @@ import { X, CheckCircle, XCircle, Edit2, Save, FileText, ExternalLink, ShieldChe
 import { Customer, KYCDocument } from '../types';
 import { openLocalFile } from '../lib/fileService';
 import { ConfirmationModal } from './ConfirmationModal';
+import { getAllCustomers } from '../lib/db/customerService';
 
 interface CustomerDetailsModalProps {
   customer: Customer;
@@ -48,6 +49,21 @@ export function CustomerDetailsModal({ customer, onClose, onUpdate }: CustomerDe
   };
 
   const handleSave = () => {
+    // Check if email already exists for another customer
+    const cleanEmail = formData.email ? formData.email.trim().toLowerCase() : '';
+    if (cleanEmail) {
+      try {
+        const allCustomers = getAllCustomers();
+        const emailExists = allCustomers.some(c => String(c.id) !== String(customer.id) && c.email && c.email.trim().toLowerCase() === cleanEmail);
+        if (emailExists) {
+          alert("A customer with this email address is already registered!");
+          return;
+        }
+      } catch (e) {
+        console.error('Failed to validate duplicate email:', e);
+      }
+    }
+
     onUpdate({
       ...formData,
       kycDocument: formData.kycDocuments?.[0]?.type || formData.kycDocument,
