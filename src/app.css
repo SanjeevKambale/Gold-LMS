@@ -169,3 +169,72 @@ input.py-2,
 textarea.py-2 {
   border-radius: var(--border-radius-xs) !important;
 }
+
+/* --- Tailwind Utility Class Fixes for App Elements --- */
+
+/* Base & Hover Colors */
+.bg-green-600 {
+  background-color: oklch(.627 .194 149.214) !important;
+}
+
+@media (hover: hover) {
+  .hover\:bg-green-600:hover {
+    background-color: oklch(.627 .194 149.214) !important;
+  }
+  .hover\:bg-green-700:hover {
+    background-color: oklch(.527 .154 150.069) !important;
+  }
+  .hover\:bg-gray-800:hover {
+    background-color: oklch(.278 .033 256.848) !important;
+  }
+  .hover\:bg-gray-50\/50:hover {
+    background-color: rgba(243, 243, 245, 0.5) !important;
+  }
+  .hover\:bg-yellow-50\/50:hover {
+    background-color: rgba(253, 250, 237, 0.5) !important;
+  }
+}
+
+.bg-gray-900 {
+  background-color: oklch(.21 .034 264.665) !important;
+}
+
+/* Padding utilities */
+.px-8 {
+  padding-left: 2rem !important;
+  padding-right: 2rem !important;
+}
+
+/* Opacity overlay utilities for dialog backdrops and modals */
+.bg-black.bg-opacity-60,
+.bg-black\/60 {
+  background-color: rgba(0, 0, 0, 0.6) !important;
+}
+
+.bg-black\/50 {
+  background-color: rgba(0, 0, 0, 0.5) !important;
+}
+
+.bg-white.bg-opacity-20 {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.bg-white\/50 {
+  background-color: rgba(255, 255, 255, 0.5) !important;
+}
+
+.bg-gray-50\/50 {
+  background-color: rgba(243, 243, 245, 0.5) !important;
+}
+
+.bg-gray-50\/30 {
+  background-color: rgba(243, 243, 245, 0.3) !important;
+}
+
+.bg-red-50\/50 {
+  background-color: rgba(254, 242, 242, 0.5) !important;
+}
+
+.bg-yellow-50\/50 {
+  background-color: rgba(253, 250, 237, 0.5) !important;
+}
