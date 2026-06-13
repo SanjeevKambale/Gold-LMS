@@ -16,6 +16,23 @@ function getEffectiveEMI(emi: EMI, today: string): EMI {
       paymentId: undefined,
     };
   }
+
+  // If the EMI is pending and its due date is in the past relative to today, it is effectively overdue
+  if (emi.status === 'pending' && emi.dueDate < today) {
+    return {
+      ...emi,
+      status: 'overdue',
+    };
+  }
+
+  // If the EMI is marked overdue in the database but the simulated working date makes it not due yet
+  if (emi.status === 'overdue' && emi.dueDate >= today) {
+    return {
+      ...emi,
+      status: 'pending',
+    };
+  }
+
   return emi;
 }
 
